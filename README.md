@@ -40,6 +40,16 @@ An example of one day of electricity consumption can be seen below. By estimatin
 
 The data richness of the raw data stream can be seen in the following figure. Raw data is sampled at 8kHz for the SmartMeter and 2kHz for the individual appliance data.
 ![viCurve](viCurve.png)
+## Installation
+
+Required python packages: numpy, pandas, scipy, json and pyav.
+To install ```pyav```:
+```bash
+git clone https://github.com/pscholl/PyAV.git
+cd PyAv
+git checkout origin/phil
+python3 setup.py install
+```
 
 ## How to Use
 
@@ -75,3 +85,4 @@ fig.autofmt_xdate()
 plt.show()
 
 ```
+
