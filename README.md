@@ -14,8 +14,64 @@ The files contain scripts to generate several statistics and plots from the data
 - 50Hz and 1Hz data summary with derived active, reactive and apparent power readings available 
 - 99.98% data availability (missing data filled with zeros to maintain timestamps)
 
+
+## Download
+
+
+You can download the complete dataset (that's a whoopy 1.2TB) using rsync:
+```bash
+rsync -avzh --progress FIRED@clu.informatik.uni-freiburg.de:/usr/local/lradisk1/voelkerb/FIRED/  <DESTINATION> [--dry-run]
+```
+
+If you are only interested in the summary files (28GB) use:
+```bash
+rsync -avzh --progress --exclude="highFreq" FIRED@clu.informatik.uni-freiburg.de:/usr/local/lradisk1/voelkerb/FIRED/  <DESTINATION> [--dry-run]
+```
+
+If only need 1Hz data (1GB) use:
+```bash
+rsync -avzh --progress --exclude="highFreq" --exclude="summary/50Hz" FIRED@clu.informatik.uni-freiburg.de:/usr/local/lradisk1/voelkerb/FIRED/  <DESTINATION> [--dry-run]
+```
+
+## Sample Data
+
 An example of one day of electricity consumption can be seen below. By estimating the base power during night times, the aggregated power matches the sum of the base power and the indivdual appliance data. 
 ![wholeHouse](wholeHouse.png)
 
 The data richness of the raw data stream can be seen in the following figure. Raw data is sampled at 8kHz for the SmartMeter and 2kHz for the individual appliance data.
 ![viCurve](viCurve.png)
+
+## How to Use
+
+The helper module makes using the dataset a breeze.
+```python
+import helper as hp
+
+# load 1Hz power data of the television for complete recording range
+television = hp.getPower("television", 1)
+
+# load 50Hz power data of powermeter09 (Fridge) of day 2020.07.02
+startTs,  stopTs = hp.getRecordingRange("2020.07.02", "2020.07.03")
+fridge = hp.getMeterPower("powermeter09", 50, startTs=startTs, stopTs=end)
+```
+
+Plotting the data is straightforward:
+```python
+import matplotlib.pyplot as plt
+import numpy as np
+from datetime import datetime
+
+start = fridge["timestamp"]
+end = start+(len(fridge["data"])/fridge["samplingrate"])
+timestamps = np.linspace(start, end, len(fridge["data"])
+dates = [datetime.fromtimestamp(ts) for ts in timestamps]
+
+fig, ax = plt.subplots()
+ax.plot(dates, fridge["data"]["p"], label="active power")
+ax.plot(dates, fridge["data"]["q"], label="reactive power")
+
+ax.set(xlabel='Time of day', ylabel='Power (W/var)', title='Fridge')
+fig.autofmt_xdate()
+plt.show()
+
+```
