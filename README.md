@@ -17,20 +17,21 @@ The files contain scripts to generate several statistics and plots from the data
 
 ## Download
 
+Use the ``rsync``command to download the data. The password is: *nobodyGetsFIRED*.
 
 You can download the complete dataset (that's a whoopy 1.2TB) using rsync:
 ```bash
-rsync -avzh --progress FIRED@clu.informatik.uni-freiburg.de:/usr/local/lradisk1/voelkerb/FIRED/  <DESTINATION> [--dry-run]
+rsync -avzh --progress rsync://FIRED@clu.informatik.uni-freiburg.de/FIRED/  <DESTINATION> [--dry-run]
 ```
 
 If you are only interested in the summary files (28GB) use:
 ```bash
-rsync -avzh --progress --exclude="highFreq" FIRED@clu.informatik.uni-freiburg.de:/usr/local/lradisk1/voelkerb/FIRED/  <DESTINATION> [--dry-run]
+rsync -avzh --progress --exclude="highFreq" rsync://FIRED@clu.informatik.uni-freiburg.de/FIRED/  <DESTINATION> [--dry-run]
 ```
 
 If only need 1Hz data (1GB) use:
 ```bash
-rsync -avzh --progress --exclude="highFreq" --exclude="summary/50Hz" FIRED@clu.informatik.uni-freiburg.de:/usr/local/lradisk1/voelkerb/FIRED/  <DESTINATION> [--dry-run]
+rsync -avzh --progress --exclude="highFreq" --exclude="summary/50Hz" rsync://FIRED@clu.informatik.uni-freiburg.de/FIRED/  <DESTINATION> [--dry-run]
 ```
 
 ## Sample Data
