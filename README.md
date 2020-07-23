@@ -17,7 +17,7 @@ The files contain scripts to generate several statistics and plots from the data
 
 ## Download
 
-Use the ``rsync``command to download the data. The password is: *nobodyGetsFIRED*.
+Use the ``rsync``command to download the data. The password is: *nobodyGetsFIRED*
 
 You can download the complete dataset (that's a whoopy 1.2TB) using rsync:
 ```bash
