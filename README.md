@@ -29,7 +29,7 @@ If you are only interested in the summary files (28GB) use:
 rsync -avzh --progress --exclude="highFreq" rsync://FIRED@clu.informatik.uni-freiburg.de/FIRED/  <DESTINATION> [--dry-run]
 ```
 
-If only need 1Hz data (1GB) use:
+If you want typical Smart Meter data, you can download only the 1Hz data (1GB):
 ```bash
 rsync -avzh --progress --exclude="highFreq" --exclude="summary/50Hz" rsync://FIRED@clu.informatik.uni-freiburg.de/FIRED/  <DESTINATION> [--dry-run]
 ```
