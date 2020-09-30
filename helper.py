@@ -1,13 +1,13 @@
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import pytz
 import pandas as pd
 from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
 import json
 import numpy as np
 import av
-import av.io
 from scipy.signal import find_peaks
 from typing import Union, List, Tuple, Optional
 
@@ -29,7 +29,7 @@ ANNOTATION_TYPES = [LIGHT_ANNOTATION, SENSOR_ANNOTATION, DEVICE_ANNOTATION]
 # Folder names
 ANNOTATION_FOLDER_NAME = "annotation"
 INFO_FOLDER_NAME = "info"
-RAW_FOLDER_NAME = "raw"
+RAW_FOLDER_NAME = "highFreq"
 SUMMARY_FOLDER_NAME = "summary"
 ONE_HZ_FOLDER_NAME = "1Hz"
 FIFTY_HZ_FOLDER_NAME = "50Hz"
@@ -270,6 +270,11 @@ def getAnnotationPath() -> str:
     __checkBase()
     return os.path.join(FIRED_BASE_FOLDER, ANNOTATION_FOLDER_NAME)
 
+def getHighFreqPath() -> str:
+    """Return folder where annotation data is stored."""
+    __checkBase()
+    return os.path.join(FIRED_BASE_FOLDER, RAW_FOLDER_NAME)
+
 
 def getRecordingRange(startStr: Optional[str]=None, endStr: Optional[str]=None) -> Tuple[float, float]:
     """
@@ -290,9 +295,23 @@ def getRecordingRange(startStr: Optional[str]=None, endStr: Optional[str]=None) 
     allFiles = sorted([os.path.join(firstFolder, p) for p in os.listdir(firstFolder) if os.path.isfile(os.path.join(firstFolder, p))])
     
     start = filenameToTimestamp(allFiles[0])
-    durLast = info(allFiles[-1])["stream0"]["duration"]
+    durLast = info(allFiles[-1])["streams"][0]["duration"]
     end = filenameToTimestamp(allFiles[-1]) + durLast
-    # if end is less than 2 seconds away from full day, use full day 
+
+    import pytz, time
+    tzOFRec = pytz.timezone('Europe/Berlin')
+
+    def localTz():
+        if time.daylight:
+            offsetHour = time.altzone / 3600
+        else:
+            offsetHour = time.timezone / 3600
+        return pytz.timezone('Etc/GMT%+d' % offsetHour)
+    thisTz = localTz()
+
+    start = datetime.fromtimestamp(start).astimezone(tzOFRec).astimezone(thisTz).timestamp()
+    end = datetime.fromtimestamp(end).astimezone(tzOFRec).astimezone(thisTz).timestamp()
+
     endDate = datetime.fromtimestamp(end)
     nextDay = endDate.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
     if (nextDay.timestamp() - endDate.timestamp()) < 2: end = nextDay.timestamp()
@@ -436,12 +455,14 @@ def convertToTimeRange(data: list, clipLonger: Optional[float]=None, clipTo: flo
     return rangeData
 
 
-def getApplianceList(startTs: Optional[float]=None, stopTs: Optional[float]=None) -> list:
+def getApplianceList(meter: Optional[str]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None) -> list:
     """
     Return list of appliance names active in between the given time range.
     Active is defined as metered or connected to changing device or light turned on.
     NOTE: What about stove?
     
+    :param meter: one meter
+    :type  meter: None or str
     :param startTs: Time range start
     :type  startTs: None or float
     :param stopTs: Time range stop
@@ -456,16 +477,22 @@ def getApplianceList(startTs: Optional[float]=None, stopTs: Optional[float]=None
     if stopTs is None: stopTs = getRecordingRange()[1]
     deviceMapping = getDeviceMapping()
     devices = [] 
-    for key in deviceMapping: devices.extend(deviceMapping[key]["appliances"])
-    devices = [d for d in devices if d not in ["changing","L1","L2","L3"]]
 
-    cdInfo = getChangingDeviceInfo()
-    changingDevices = list(set([cdI["name"] for cdI in cdInfo if cdI["startTs"] < stopTs and cdI["stopTs"] > startTs]))
-
-    lightsInfo = loadAnnotations(LIGHT_ANNOTATION, loadData=False)
-    lights = [l["name"] for l in lightsInfo]
-    appliances = sorted(list(set(devices + changingDevices + lights)))
-    
+    if meter is None:
+        for key in deviceMapping: devices.extend(deviceMapping[key]["appliances"])
+        devices = [d for d in devices if d not in ["changing", "L1,L2,L3"]] + ["stove"]
+        cdInfo = getChangingDeviceInfo()
+        changingDevices = list(set([cdI["name"] for cdI in cdInfo if cdI["startTs"] < stopTs and cdI["stopTs"] > startTs]))
+        lightsInfo = loadAnnotations(LIGHT_ANNOTATION, loadData=False)
+        lights = [l["name"] for l in lightsInfo]    
+        appliances = sorted(list(set(devices + changingDevices + lights)))
+    else:
+        if meter in deviceMapping:
+           devices.extend(deviceMapping[meter]["appliances"])
+           if "changing" in devices:
+                cdInfo = getChangingDeviceInfo()
+                devices = list(set([cdI["name"] for cdI in cdInfo if cdI["startTs"] < stopTs and cdI["stopTs"] > startTs]))
+        appliances = sorted(list(set(devices)))
     return appliances
 
 
@@ -531,6 +558,14 @@ def bestBasePowerTimeRange(startTs: float, stopTs: float) -> List[dict]:
         timeranges.append({"startTs":tsStart, "stopTs":tsStop})
     return timeranges
 
+def UTCfromLocalTs(ts):
+    tz = getTimeZone()
+    date = datetime.fromtimestamp(ts)
+    date = tz.localize(date)
+    return date.timestamp()
+
+def getTimeZone():
+    return pytz.timezone("Europe/Berlin")
 
 def getBasePower(samplingrate: int, startTs: Optional[float]=None, stopTs: Optional[float]=None, phase: Union[None,int,List[int]]=None) -> List[dict]:
     """
@@ -569,7 +604,7 @@ def getBasePower(samplingrate: int, startTs: Optional[float]=None, stopTs: Optio
         data = np.recarray((rangeSize,), dtype=dt).view(np.recarray)
         for m in powers: data[m] = 0
         dataDict = {"title":"basepower", "name":"basepower l" + str(p), "phase":p, 
-                    "data": data, "timestamp":startTs, "type":"audio",
+                    "data": data, "timestamp":startTs, "type":"audio", 
                     "samplingrate":samplingrate, "measures":powers}
         basePowers[p] = dataDict
     
@@ -591,6 +626,10 @@ def getBasePower(samplingrate: int, startTs: Optional[float]=None, stopTs: Optio
             for m in powers: basePowers[p]["data"][m][index:index+len(mData)] -= mData[m]
         index += len(smData)
 
+    # Prevent that base power can be negative
+    for m in powers: 
+        indices = np.where(basePowers[p]["data"][m] < 0)
+        basePowers[p]["data"][m][indices] = 0
     # Calculate base power
     for p in phase:
         data = np.recarray((newSize,), dtype=dt).view(np.recarray)
@@ -672,6 +711,251 @@ def getReconstructibleDevices() -> dict:
     rec = {"stove":getPowerStove}
     return rec
 
+def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Optional[float]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None, verbose: int=0) -> dict:
+    """
+    Return data of given meter in a as chunks of given size. 
+
+    :param meter: Name of meter; must be in getMeterList().
+    :type  meter: str
+    :param timeslice: time slice over which to iterate
+    :type  timeslice: float
+    :param samplingrate: samplingrate of returned power, None for default
+    :type  samplingrate: int
+    :param startTs: Time range start
+    :type  startTs: float or None
+    :param stopTs: Time range stop
+    :type  stopTs: float or None
+    :param verbose: Enable some verbose output while loading data, 0 for no output
+    :type  verbose: int, default: 0
+
+    :return: power data
+    :rtype: dict
+    """
+    __checkBase()
+    if startTs is None: startTs = getRecordingRange()[0]
+    if stopTs is None: stopTs = getRecordingRange()[1]
+    # Get correct data path depending on data and sr
+    if data =="VI": directory = os.path.join(getHighFreqPath(), meter)
+    if data =="PQ" and samplingrate is not None and samplingrate > 1.0: directory = os.path.join(get50HzSummaryPath(), meter)
+    else: directory = os.path.join(get1HzSummaryPath(), meter)
+
+    # As os.walk is pretty slow here, we constuct the filename as it is known
+    # NOTE: we cannot do this due to filenames might be different if device recovered
+    # coarseStartTime = datetime.fromtimestamp(startTs).replace(second=0, microsecond=0)
+    # fileNames = meter + "_" + 
+    files = []
+    ct = None
+    for file in sorted(os.listdir(directory)):
+        # not a matroska file
+        if ".mkv" not in file: continue
+        ts = filenameToTimestamp(file)
+        # could not extract timestamp
+        if ts is None: continue
+        # This is much much quicker than opening all files
+        if data =="VI":
+            # get full 10 minutes
+            ts_end = int((int(ts)+10*60)/(10*60))*10*60
+        else: ts_end = ts+24*60*60
+        if ts_end <= startTs: continue
+        if ts >= stopTs: break # only works if files are sorted
+        files.append(os.path.join(directory, file))
+    
+    if verbose: print(files)
+    current = startTs
+    if len(files) == 0: return
+
+    deviceMapping = getDeviceMapping()
+    finish = False
+    timestamp = startTs
+    chunkI = 0
+    fileI = 0
+    fileIndex = 0
+    chunk = None
+    eof = None
+    while timestamp < stopTs:
+        # Not inited at all
+        if chunk is None:
+            data = loadAudio(files[fileIndex])[0]
+            data["phase"] = deviceMapping[meter]["phase"]
+            
+            if verbose and samplingrate is not None and samplingrate != data["samplingrate"]:
+                print("Have to resmaple data, this ist typically slow")
+            chunkSize = int(timeslice*data["samplingrate"])
+            chunk = np.recarray((chunkSize,), dtype=data["data"].dtype).view(np.recarray)
+            eof = data["timestamp"] + data["duration"]
+            fileI = int((timestamp - data["timestamp"])*data["samplingrate"])
+
+        while fileI < len(data["data"]):
+            # Fill chunk with available data
+            fileJ = min(len(data["data"]), fileI + (chunkSize - chunkI))
+            samples = fileJ - fileI
+            # print("{}->{}: {}".format(fileI, fileJ, len(data["data"])))
+            # print("{}->{}: {}".format(chunkI, chunkI+samples, chunkSize))
+            # print("_"*50)
+            chunk[chunkI:chunkI+samples] = data["data"][fileI:fileJ]
+            chunkI += samples
+            fileI += samples
+            # Total chunk is written
+            if chunkI >= chunkSize:
+                # Copy over dict entries
+                dataReturn = {k:i for k,i in data.items() if k != "data"}
+                dataReturn["data"] = chunk
+
+                if samplingrate is not None and samplingrate != data["samplingrate"]:
+                    dataReturn["data"] = resampleRecord(dataReturn["data"], data["samplingrate"], samplingrate)
+                    dataReturn["samplingrate"] = samplingrate
+
+                dataReturn["timestamp"] = timestamp
+                distanceToStop = stopTs - (dataReturn["timestamp"] + len(dataReturn["data"])/data["samplingrate"])
+                if distanceToStop <= 0:
+                    sampleEnd = int((stopTs - dataReturn["timestamp"])*data["samplingrate"])
+                    dataReturn["data"] = dataReturn["data"][:sampleEnd]
+                    finish = True
+                dataReturn["samples"] = len(dataReturn["data"])
+                dataReturn["duration"] = dataReturn["samples"]/data["samplingrate"]
+                yield dataReturn
+                chunk = np.recarray((chunkSize,), dtype=data["data"].dtype).view(np.recarray)
+                timestamp += chunkSize/data["samplingrate"]
+                chunkI = 0
+            if finish: return
+        
+        missingSamples = (timestamp < stopTs)*data["samplingrate"]
+        
+        # We reached end of file 
+        # Load next and check distance
+        fileIndex += 1
+        if fileIndex < len(files): 
+            data = loadAudio(files[fileIndex])[0]
+            fileI = 0
+            missingSamples = int((data["timestamp"] - eof)*data["samplingrate"])
+            if verbose and missingSamples > 0:
+                print("Gap between: {}->{}, {}samples".format(time_format_ymdhms(eof), time_format_ymdhms(data["timestamp"]), missingSamples))
+            eof = data["timestamp"] + data["duration"]
+
+        # If file has missing samples or missing samples when no file is left
+        if missingSamples > 0:
+            while missingSamples > 0:
+                samples = min(missingSamples, (chunkSize - chunkI))
+                # Fill with zeros
+                for m in chunk.dtype.names: chunk[m][chunkI:chunkI+samples] = 0
+                chunkI += samples 
+                missingSamples -= samples
+                # Total chunk is written
+                if chunkI >= chunkSize:
+                    # Copy over dict entries
+                    dataReturn = {k:i for k,i in data.items() if k != "data"}
+                    dataReturn["data"] = chunk
+
+                    if samplingrate is not None and samplingrate != data["samplingrate"]:
+                        dataReturn["data"] = resampleRecord(dataReturn["data"], data["samplingrate"], samplingrate)
+                        dataReturn["samplingrate"] = samplingrate
+
+                    dataReturn["timestamp"] = timestamp
+                    distanceToStop = stopTs - (dataReturn["timestamp"] + len(dataReturn["data"])/data["samplingrate"])
+                    if distanceToStop <= 0:
+                        sampleEnd = int((stopTs - dataReturn["timestamp"])*data["samplingrate"])
+                        dataReturn["data"] = dataReturn["data"][:sampleEnd]
+                        finish = True
+                    dataReturn["samples"] = len(dataReturn["data"])
+                    dataReturn["duration"] = dataReturn["samples"]/data["samplingrate"]
+                    yield dataReturn
+                    chunk = np.recarray((chunkSize,), dtype=data["data"].dtype).view(np.recarray)
+                    timestamp += chunkSize/data["samplingrate"]
+                    chunkI = 0
+        if finish: return
+
+
+def getMeterVI(meter: str, samplingrate: Optional[float]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None, verbose: int=0) -> dict:
+    """
+    Return vi of given meter. 
+
+    :param meter: Name of meter; must be in getMeterList().
+    :type  meter: str
+    :param samplingrate: samplingrate of returned power, None for default
+    :type  samplingrate: int
+    :param startTs: Time range start
+    :type  startTs: float or None
+    :param stopTs: Time range stop
+    :type  stopTs: float or None
+    :param verbose: Enable some verbose output while loading data, 0 for no output
+    :type  verbose: int, default: 0
+
+    :return: power data
+    :rtype: dict
+    """
+    __checkBase()
+    if startTs is None: startTs = getRecordingRange()[0]
+    if stopTs is None: stopTs = getRecordingRange()[1]
+    # Use generator object
+    return [c for c in getMeterChunk(meter, (stopTs - startTs), data="VI", startTs=startTs, stopTs=stopTs, samplingrate=samplingrate, verbose=verbose)][0]
+
+
+def getMeterFiles(meter: str, samplingrate: float, data: Optional[str]="PQ", startTs: Optional[float]=None, stopTs: Optional[float]=None, verbose: int=0) -> dict:
+    """
+    Return files required for given meter and timestamp. 
+
+    :param meter: Name of meter; must be in getMeterList().
+    :type  meter: str
+    :param samplingrate: samplingrate of returned power
+    :type  samplingrate: int
+    :param data: Type of the data, either PQ or VI
+    :type  data: str
+    :param startTs: Time range start
+    :type  startTs: float or None
+    :param stopTs: Time range stop
+    :type  stopTs: float or None
+    :param verbose: Enable some verbose output while loading data, 0 for no output
+    :type  verbose: int, default: 0
+
+    :return: power data
+    :rtype: dict
+    """
+    if startTs is None: startTs = getRecordingRange()[0]
+    if stopTs is None: stopTs = getRecordingRange()[1]
+    # # Use data depending on goal samplingrate
+    # if samplingrate > 1: folder = os.path.join(get50HzSummaryPath(), meter.lower())
+    # else: folder = os.path.join(get1HzSummaryPath(), meter.lower())
+    # startDate = datetime.fromtimestamp(startTs).replace(hour=0, minute=0, second=0, microsecond=0)
+    # stopDate = datetime.fromtimestamp(stopTs)
+    # # Special case of data until midnight (next day wont be loaded)
+    # if stopDate == stopDate.replace(hour=0, minute=0, second=0, microsecond=0): stopDate = stopDate - timedelta(days=1)
+    # else: stopDate = stopDate.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # dates = [startDate]
+    # while startDate < stopDate:
+    #     startDate += timedelta(days=1)
+    #     dates.append(startDate)
+    # files = [os.path.join(folder, meter + "_" + date.strftime(STORE_TIME_FORMAT) + ".mkv") for date in dates]
+    # for file in files:
+    #     if verbose: print(file)
+    #     if not os.path.exists(file): sys.exit("\033[91mFile {} does not exist\033[0m".format(file))
+
+    # Get correct data path depending on data and sr
+    if data =="VI": directory = os.path.join(getHighFreqPath(), meter)
+    if data =="PQ" and samplingrate is not None and samplingrate > 1.0: directory = os.path.join(get50HzSummaryPath(), meter)
+    else: directory = os.path.join(get1HzSummaryPath(), meter)
+
+    # As os.walk is pretty slow here, we constuct the filename as it is known
+    # NOTE: we cannot do this due to filenames might be different if device recovered
+    # coarseStartTime = datetime.fromtimestamp(startTs).replace(second=0, microsecond=0)
+    # fileNames = meter + "_" + 
+    files = []
+    ct = None
+    for file in sorted(os.listdir(directory)):
+        # not a matroska file
+        if ".mkv" not in file: continue
+        ts = filenameToTimestamp(file)
+        # could not extract timestamp
+        if ts is None: continue
+        # This is much much quicker than opening all files
+        if data =="VI":
+            # get full 10 minutes
+            ts_end = int((int(ts)+10*60)/(10*60))*10*60
+        else: ts_end = ts+24*60*60
+        if ts_end <= startTs: continue
+        if ts >= stopTs: break # only works if files are sorted
+        files.append(os.path.join(directory, file))
+    return files
 
 def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float]=None, stopTs: Optional[float]=None, verbose: int=0) -> dict:
     """
@@ -695,23 +979,7 @@ def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float]=None
     
     if startTs is None: startTs = getRecordingRange()[0]
     if stopTs is None: stopTs = getRecordingRange()[1]
-    # Use data depending on goal samplingrate
-    if samplingrate > 1: folder = os.path.join(get50HzSummaryPath(), meter.lower())
-    else: folder = os.path.join(get1HzSummaryPath(), meter.lower())
-    startDate = datetime.fromtimestamp(startTs).replace(hour=0, minute=0, second=0, microsecond=0)
-    stopDate = datetime.fromtimestamp(stopTs)
-    # Special case of data until midnight (next day wont be loaded)
-    if stopDate == stopDate.replace(hour=0, minute=0, second=0, microsecond=0): stopDate = stopDate - timedelta(days=1)
-    else: stopDate = stopDate.replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    dates = [startDate]
-    while startDate < stopDate:
-        startDate += timedelta(days=1)
-        dates.append(startDate)
-    files = [os.path.join(folder, meter + "_" + date.strftime(STORE_TIME_FORMAT) + ".mkv") for date in dates]
-    for file in files:
-        if verbose: print(file)
-        if not os.path.exists(file): sys.exit("\033[91mFile {} does not exist\033[0m".format(file))
+    files = getMeterFiles(meter, samplingrate, startTs=startTs, stopTs=stopTs, verbose=verbose)
     if verbose: print("{}: Loading MKV...".format(meter), end="", flush=True)
     data = [loadAudio(file)[0] for file in files]
     if verbose: print("Done")
@@ -731,7 +999,6 @@ def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float]=None
     #     if verbose: print("Done")
     #     try: data = next(d for d in dataList if d["title"] == meter)
     #     except StopIteration: return None
-        
     fromSample = int((startTs - data["timestamp"])*data["samplingrate"])
     toSample = int((stopTs - data["timestamp"])*data["samplingrate"])
     data["data"] = data["data"][fromSample:toSample]
@@ -754,6 +1021,8 @@ def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float]=None
         data["data"] = data["data"][:goalSamples]
     deviceMapping = getDeviceMapping()
     data["phase"] = deviceMapping[meter]["phase"]
+    data["samples"] = len(data["data"])
+    data["duration"] = data["samples"]/data["samplingrate"]
     return data
 
 
@@ -1041,10 +1310,252 @@ def getTsDurRateMeas(file: str) -> Tuple[float, float, int, List[str]]:
     nfo = info(file)
     if nfo is None:
         return (filenameToTimestamp(file), 0, 0, [])
-    iinfo = nfo["stream0"]
+    iinfo = nfo["streams"][0]
     if "TIMESTAMP" in iinfo["metadata"]: startTs = float(iinfo["metadata"]["TIMESTAMP"])
     else: startTs = filenameToTimestamp(file)
-    return (startTs, iinfo["duration"], iinfo["rate"], iinfo["measures"])
+    return (startTs, iinfo["duration"], iinfo["samplingrate"], iinfo["measures"])
+
+ 
+
+def streamsForTitle(streams, titles:Union[str, List[str]]):
+    """Return only streams that match the given title"""
+    # Handle title not list case
+    if not isinstance(titles, list): titles = [titles]
+    # Loop over stream metadata and look for title match
+    newStreams = []
+    for stream in streams:
+        key =  set(["Title", "title", "TITLE", "NAME", "Name", "name"]).intersection(set(stream.metadata.keys()))
+        if len(key) > 0:
+            title = stream.metadata[next(iter(key))]
+            if title in titles: newStreams.append(stream)
+    return newStreams
+
+
+def chunkLoads(fileList: List[str], start: Optional[float]=0, stop: Optional[float]=-1, 
+              verbose: bool=False, streamsToLoad: Optional[List[int]]=None, titles: Optional[List[str]]=None) -> List[dict]:
+    r"""
+    Load multiple files in chunks to keep memory usage small.
+    The purpose is to have a dataset split into multiple files.
+    fileList must be sorted!!!
+
+    Yields a list of dictionaries.
+    Each dictionary holds information such as metadata, title, name and data.
+    The list has the following structure:
+
+    .. code-block:: python3
+
+        dataList = [
+            {
+                title:        < streamTitle >,
+                streamIndex:  < index of the stream >,
+                metadata:     < metadata of the stream >,
+                type:         < type of the stream >,
+                samplingrate: < samplingrate >,                       # only for audio
+                measures:     < list of measures >,                   # only for audio
+                data:         < data as recarray with fieldnames >,   # only for audio
+            },
+            ...
+        ]
+
+    :param fileList:       List of filepath to the mkvs to open. Must be sorted and continues
+    :type  fileList:       list of str
+    :param timeslice:      timeslice that is returned
+    :type  timeslice:      float
+    :param verbose:        increase output verbosity
+    :type  verbose:        Bool
+    :param streamsToLoad:  List of streams to load from the file, either list of numbers or list of stream titles
+                           default: None -> all streams should be loaded
+    :type  streamsToLoad:  list
+    :param titles:         List or str of streams titles which should be loaded
+                           default: None -> no filter based on title names
+    :type  titles:         list or str
+
+    :yield: List of dictionaries holding data and info
+    :rtype: list
+    """
+    finished = False
+    started = start
+    duration = stop-start
+    currentDuration = 0
+    missingSeconds = 0
+    for j, file in enumerate(fileList):
+        # Skipping files out of starttime
+        inf = info(file)["streams"][0]
+        if inf["duration"] < started:
+            started -= inf["duration"]
+            continue
+        for dataListChunk in chunkLoad(file, timeslice, starttime=started, verbose=verbose, streamsToLoad=streamsToLoad, titles=titles):
+            print(len(dataListChunk[0]["data"]))
+            # We started from starttime frist, now we have to set
+            started = missingSeconds
+            # Check if chunk length matches
+            addNext = any([int(timeslice*s["samplingrate"]) > s["samples"] for s in dataListChunk])
+            # If not, load chunk from next file if there is one left
+            if addNext and file != fileList[-1]:
+                # Calculate missing seconds
+                missingSeconds = timeslice - (dataListChunk[0]["samples"]/dataListChunk[0]["samplingrate"])
+                started = missingSeconds
+                # load one chunk from nextfile
+                addedChunk = next(chunkLoad(fileList[j+1], missingSeconds, starttime=0, verbose=verbose, streamsToLoad=streamsToLoad, titles=titles))
+                # Copy data over and set samples and duration
+                for i in range(len(dataListChunk)):
+                    dataListChunk[i]["data"] = np.concatenate((dataListChunk[i]["data"], addedChunk[i]["data"]))
+                    dataListChunk[i]["samples"] += addedChunk[i]["samples"]
+                    dataListChunk[i]["duration"] += addedChunk[i]["duration"]
+            # If we have a stop time, clean data at the end, if chunk was too much
+            if stop != -1:
+                dis = (currentDuration + dataListChunk[0]["duration"]) - duration
+                # Look if stop has been reached
+                if dis >= 0:
+                    # Indicate finish
+                    finished = True
+                    # Clean data
+                    for i in range(len(dataListChunk)):
+                        endSample = len(dataListChunk[i]["data"])-int(dis*dataListChunk[i]["samplingrate"])
+                        dataListChunk[i]["data"] = dataListChunk[i]["data"][:endSample]
+                        dataListChunk[i]["samples"] = len(dataListChunk[i]["data"])
+                        dataListChunk[i]["duration"] = dataListChunk[i]["samples"]/dataListChunk[i]["samplingrate"]
+
+            currentDuration += dataListChunk[0]["duration"]
+            yield dataListChunk
+            if finished: return
+
+
+
+
+def chunkLoad(filepath: str, start: Optional[float]=0, stop: Optional[float]=-1, 
+              verbose: bool=False, streamsToLoad: Optional[List[int]]=None, titles: Optional[List[str]]=None) -> List[dict]:
+    r"""
+    Load a single file in chunks to keep memory usage small.
+
+    Yields a list of dictionaries.
+    Each dictionary holds information such as metadata, title, name and data.
+    The list has the following structure:
+
+    .. code-block:: python3
+
+        dataList = [
+            {
+                title:        < streamTitle >,
+                streamIndex:  < index of the stream >,
+                metadata:     < metadata of the stream >,
+                type:         < type of the stream >,
+                samplingrate: < samplingrate >,                       # only for audio
+                measures:     < list of measures >,                   # only for audio
+                data:         < data as recarray with fieldnames >,   # only for audio
+            },
+            ...
+        ]
+
+    :param filepath:       filepath to the mkv to open
+    :type  filepath:       str
+    :param timeslice:      timeslice that is returned
+    :type  timeslice:      float
+    :param verbose:        increase output verbosity
+    :type  verbose:        Bool
+    :param streamsToLoad:  List of streams to load from the file, either list of numbers or list of stream titles
+                           default: None -> all streams should be loaded
+    :type  streamsToLoad:  list
+    :param titles:         List or str of streams titles which should be loaded
+                           default: None -> no filter based on title names
+    :type  titles:         list or str
+
+    :yield: List of dictionaries holding data and info
+    :rtype: list
+    """
+    print("newGen")
+    chunkSizes, dataOnly, loadedFrames, dataLen, dataDict = {}, {}, {}, {}, {}
+    # Open the container
+    try: container = av.open(filepath)
+    except av.AVError: return []
+    # NOTE: As for now, this only works for audio data
+    # Get available stream indices from file
+    streams = [s for i, s in enumerate(container.streams) if ( (s.type == 'audio') )]
+    # Get available stream indices from file
+    if isinstance(streamsToLoad, int): streamsToLoad = [streamsToLoad]
+    if streamsToLoad is not None: streams = [stream for stream in streams if stream.index in streamsToLoad]
+    if titles is not None: streams = streamsForTitle(streams, titles)
+    if len(streams) == 0: return []
+    # Copy over stream infos into datalist
+    dataDict = {i["streamIndex"]:i for i in info(filepath)["streams"] if i["streamIndex"] in [s.index for s in streams]}
+    
+    # Prepare chunk size dict
+    for i in dataDict.keys(): 
+        chunkSizes[i] = int(dataDict[i]["samplingrate"]*timeslice)
+        # Audio data will be stored here
+        dataOnly[i] = np.empty((chunkSizes[i],len(dataDict[i]["measures"])), dtype=np.float32)
+        loadedFrames[i] = []
+        dataLen[i] = 0
+    
+    chunks = 0
+    # Copy over timestamps so the timestamp of each chunk can be calculated
+    timestamps = {i:dataDict[i]["timestamp"] for i in dataDict}
+    # De-multiplex the individual packets of the file
+    for packet in container.demux(streams):
+        i = packet.stream.index
+            
+        # Inside the packets, decode the frames
+        for frame in packet.decode():
+
+            # Look if we can seek to next frame
+            if frame.pts + int(frame.samples/float(frame.sample_rate)*1000) < start*1000: continue
+            if stop != -1 and frame.pts > stoptime*1000: break
+            # If we need to skip data at the beginning, 0 else
+            s = max(0, int((start*1000-frame.pts)/1000.0*frame.sample_rate))
+            # If we need to skip data at the end
+            if stop != -1: e = min(frame.samples, int((stoptime*1000-frame.pts)/1000.0*frame.sample_rate))
+            else: e = frame.samples
+
+            # The frame can be audio, subtitles or video
+            if packet.stream.type == 'audio':
+                ndarray = frame.to_ndarray().T[s:e]
+                loadedFrames[i].append(ndarray)
+                dataLen[i] += ndarray.shape[0]
+                
+        # If the chunks have been loaded for all streams (sometimes chunksize smaller the framesize -> hence while)
+        while all([dataLen[index] >= chunkSizes[index] for index in chunkSizes.keys()]):
+            dataReturn = []
+            for i in chunkSizes.keys():
+                # Copy over metadata of stream
+                dataReturn.append(dataDict[i])
+
+                # Copy data of frames into chunks
+                currentLen = 0
+                while currentLen < chunkSizes[i]:
+                    end = min(loadedFrames[i][0].shape[0], chunkSizes[i]-currentLen)
+                    dataOnly[i][currentLen:currentLen+end] = loadedFrames[0][i][:end]
+                    currentLen += end
+                    loadedFrames[i][0] = loadedFrames[i][0][end:]
+                    if loadedFrames[i][0].shape[0] == 0: del loadedFrames[i][0]
+                
+                dataReturn[-1]["samples"] = dataOnly[i][:currentLen].shape[0]
+                dataReturn[-1]["duration"] = dataReturn[-1]["samples"]/dataReturn[-1]["samplingrate"]
+                dataReturn[-1]["timestamp"] = timestamps[i] + start + chunks*chunkSizes[i]/dataReturn[-1]["samplingrate"]
+                dataReturn[-1]["data"] = np.core.records.fromarrays(dataOnly[i][:currentLen].T, dtype={'names': dataReturn[-1]["measures"], 'formats': ['f4']*len(dataReturn[-1]["measures"])})
+                dataLen[i] = max(0, dataLen[i]-chunkSizes[i])
+            chunks += 1
+            yield dataReturn
+
+    # This is for the remaining chunk that is smaller than chunksize
+    while not all([dataLen[index] == 0 for index in chunkSizes.keys()]):
+        dataReturn = []
+        for i in chunkSizes.keys():
+            # Copy over metadata of stream
+            dataReturn.append(dataDict[i])
+            # Copy data of frames into chunks
+            currentLen = 0
+            while currentLen < min(chunkSizes[i], dataLen[i]):
+                end = min(loadedFrames[i][0].shape[0], chunkSizes[i]-currentLen)
+                dataOnly[i][currentLen:currentLen+end] = loadedFrames[0][i][:end]
+                currentLen += end
+                loadedFrames[i][0] = loadedFrames[i][0][end:]
+                if loadedFrames[i][0].shape[0] == 0: del loadedFrames[i][0]
+            dataReturn[-1]["samples"] = dataOnly[i][:currentLen].shape[0]
+            dataReturn[-1]["duration"] = dataReturn[-1]["samples"]/dataReturn[-1]["samplingrate"]
+            dataReturn[-1]["timestamp"] = timestamps[i] + start + chunks*chunkSizes[i]/dataReturn[-1]["samplingrate"]
+            dataReturn[-1]["data"] = np.core.records.fromarrays(dataOnly[i][:currentLen].T, dtype={'names': dataReturn[-1]["measures"], 'formats': ['f4']*len(dataReturn[-1]["measures"])})
+            dataLen[i] = max(0, dataLen[i]-chunkSizes[i])
+        yield dataReturn
 
 
 def loadAudio(filepath: str, verbose: bool=False, streamsToLoad: Optional[List[int]]=None, titles: Optional[List[str]]=None) -> List[dict]:
@@ -1067,7 +1578,6 @@ def loadAudio(filepath: str, verbose: bool=False, streamsToLoad: Optional[List[i
                 samplingrate: < samplingrate >,                       # only for audio
                 measures:     < list of measures >,                   # only for audio
                 data:         < data as recarray with fieldnames >,   # only for audio
-                subs:         < subtitles as pysubs2 file >,          # only for subtitles
             },
             ...
         ]
@@ -1086,88 +1596,47 @@ def loadAudio(filepath: str, verbose: bool=False, streamsToLoad: Optional[List[i
     :return: List of dictionaries holding data and info
     :rtype: list
     """
-    dataList = []
     # Open the container
-    try:
-        container = av.open(filepath)
-    except av.AVError:
-        return []
+    try: container = av.open(filepath)
+    except av.AVError: return []
     # Get available stream indices from file
     streams = [s for i, s in enumerate(container.streams) if ( (s.type == 'audio') )]
     # Look if it is a stream to be loaded
+    if isinstance(streamsToLoad, int): streamsToLoad = [streamsToLoad]
     if streamsToLoad is not None: streams = [stream for stream in streams if stream.index in streamsToLoad]
-    # Filter for title names
-    if titles is not None:
-        # Hande title not list case
-        if isinstance(titles, str): titles = [titles]
-        # Loop over stream metadata and look for title match
-        newStreams = []
-        for stream in streams:
-            key =  set(["Title", "title", "TITLE", "NAME", "Name", "name"]).intersection(set(stream.metadata.keys()))
-            if len(key) > 0:
-                title = stream.metadata[next(iter(key))]
-                if title in titles: newStreams.append(stream)
-        streams = newStreams
+    if titles is not None: streams = streamsForTitle(streams, titles)
+    if len(streams) == 0: return []
+    # Copy over stream infos into datalist
+    dataDict = {i["streamIndex"]:i for i in info(filepath)["streams"] if i["streamIndex"] in [s.index for s in streams]}
+    # Verbose print
+    if verbose:
+        for key, stream in dataDict.items():
+            printBlue("Stream : " + str(stream["streamIndex"]))
+            for k in ["type", "title", "metadata", "samplingrate", "measures", "duration"]:
+                if k in stream: print("{}: {}".format(k, stream[k]))
     indices = [stream.index for stream in streams]
-    # load only the data we want
-    fn = lambda bc: [stream for stream in bc if stream.index in indices]
-    rawdata = av.io.read(fn, file=filepath)
-    for data in rawdata:
-        stream = data.info
-        dataDict = {}
-        dataDict["streamIndex"] = stream.index
-        dataDict["metadata"] = stream.metadata
-        dataDict["type"] = stream.type
-        # Try to extract the tile of the stream
-        key = set(["Title", "title", "TITLE", "NAME", "Name", "name"]).intersection(set(stream.metadata.keys()))
-        if len(key) > 0: title = stream.metadata[next(iter(key))]
-        else: title = "Stream " + str(stream.index)
-        dataDict["title"] = title
-        if stream.type == "audio":
-            dataDict["samplingrate"] = stream.sample_rate
-            # Try to extract the name of the measures
-            for key in ["TIMESTAMP", "Timestamp", "timestamp"]:
-                if key in stream.metadata:
-                    dataDict["timestamp"] = float(stream.metadata[key])
-                    break
-
-            channelTags = channelTags = ["C" + str(i) for i in range(stream.channels)]
-            for key in ["CHANNEL_TAGS", "Channel_tags"]:
-                if key in stream.metadata:
-                    channelTags = stream.metadata[key].split(",")
-                    break;
-            
-            if len(channelTags) != stream.channels:
-                print("Maybe wrong meta, as #tags does not match #channels")
-                if len(channelTags) > stream.channels: channelTags = channelTags[0:stream.channels]
-                else: channelTags = ["C" + str(i) for i in range(stream.channels)]
-            dataDict["measures"] = channelTags
-            # Audio data will be stored here
-            dataDict["data"] = data.transpose()
-        # Append to list
-        dataList.append(dataDict)
-
-    # Convert data to record array
-    for i in range(len(dataList)):
-        if dataList[i]["type"] == 'audio':
-            # Convert data into structured array
-            dataList[i]["data"] = np.core.records.fromarrays(dataList[i]["data"], dtype={'names': dataList[i]["measures"], 'formats': ['f4']*len(dataList[i]["measures"])})
-            # Does not work... maybe there is a better way
-            # dataList[i]["data"] = np.array(dataList[i]["data"].reshape((2, -1)), dtype=[(measure, np.float32) for measure in dataList[i]["measures"]])
-            # print(dataList[i]["data"].shape)
-            # print(dataList[i]["data"].dtype)
-            # dataList[i]["data"] = data
-            if verbose:
-                print("Stream : " + str(dataList[i]["streamIndex"]))
-                if verbose:
-                    print("Title: " + str(dataList[i]["title"]))
-                print("Metadata: " + str(dataList[i]["metadata"]))
-                if dataList[i]["type"] == "audio":
-                    print("Samplingrate: " + str(dataList[i]["samplingrate"]) + "Hz")
-                    print("Channels: " + str(dataList[i]["measures"]))
-                    print("Samples: "  + str(len(dataList[i]["data"])))
-                    print("Duration: " + str(len(dataList[i]["data"])/dataList[i]["samplingrate"]) + "s")
-    return dataList
+    # Prepare dict for data
+    for i in dataDict.keys():
+        # Allocate empty array
+        dataDict[i]["data"] = np.empty((dataDict[i]["samples"],len(dataDict[i]["measures"])), dtype=np.float32)
+        dataDict[i]["storeIndex"] = 0 
+    # Demultiplex the individual packets of the file
+    for i, packet in enumerate(container.demux(streams)):
+        # Inside the packets, decode the frames
+        for frame in packet.decode(): # codec_ctx.decode(packet):
+            # Get corresponding index in dataList array
+            index = packet.stream.index
+            ndarray = frame.to_ndarray().transpose()
+            # copy over data
+            j = dataDict[index]["storeIndex"]
+            dataDict[index]["data"][j:j+ndarray.shape[0],:] = ndarray[:,:]
+            dataDict[index]["storeIndex"] += ndarray.shape[0]
+    # Make recarray from data
+    for i in dataDict.keys():
+        if "storeIndex" in dataDict[i]: del dataDict[i]["storeIndex"] 
+        dataDict[i]["data"] = np.core.records.fromarrays(dataDict[i]["data"].transpose(), dtype={'names': dataDict[i]["measures"], 'formats': ['f4']*len(dataDict[i]["measures"])})
+    # RETURN it as a list
+    return [dataDict[i] for i in dataDict.keys()]
 
 
 def info(path: str, format: Optional[str]=None, option: list=[]) -> dict:
@@ -1187,41 +1656,51 @@ def info(path: str, format: Optional[str]=None, option: list=[]) -> dict:
     except av.AVError:
         return None
     info = {}
+    # This extracts container info
     info["format"] = container.format
     info["duration"] = float(container.duration) / av.time_base
     info["metadata"] = container.metadata
     info["#streams"] = len(container.streams)
     info["streams"] = []
-    samples = None
-    if container.duration < 0 or container.duration / av.time_base > 24*60*60*100: # this is 100 days
-        # Unfortunately duration estimation of ffmpeg is broken for some files, as the files have not been closed correctly.
-        # For later days during recording this is fixed. 
-        samples = getSamples(path)
+    # Getting number of samples for each stream
+    samples = getSamples(path)
+    # Enumerate all streams and extract stream specific info
     for i, stream in enumerate(container.streams):
         streamInfo = {}
-        streamInfo["rate"] = stream.rate
+        # Samplingrate
+        streamInfo["samplingrate"] = stream.sample_rate
+        # Type (audio, video, subs)
         streamInfo["type"] = stream.type
-        if stream.duration is None: streamInfo["duration"] = float(container.duration) / av.time_base
-        # Does not seem to work
-        else: streamInfo["duration"] = float(stream.duration) / stream.time_base
+        # index in of stream
+        streamInfo["streamIndex"] = stream.index
+        # extract # samples and duration
         if samples is not None:
-            streamInfo["duration"] = samples[i]/streamInfo["rate"]
+            streamInfo["samples"] = samples[i]
+            streamInfo["duration"] = samples[i]/streamInfo["samplingrate"]
+        else:
+            streamInfo["duration"] = 0
+            streamInfo["samples"] = int(streamInfo["duration"]*streamInfo["samplingrate"])
+        # Start time (0 for most cases)
         streamInfo["start_time"] = stream.start_time
-        # print(stream.metadata)
+        # Copy metadata dictionary
         streamInfo["metadata"] = stream.metadata
+        # Extract stream title if there is any
         key = set(["Title", "title", "TITLE", "NAME", "Name", "name"]).intersection(set(stream.metadata.keys()))
         if len(key) > 0: title = stream.metadata[next(iter(key))]
         else: title = "Stream " + str(stream.index)
         streamInfo["title"] = title
+        # Video and audio have a stream format
+        if stream.type in ['audio', 'video']:
+            streamInfo["format"] = stream.format
+        # Audio has number of channels
         if stream.type == 'audio':
-            streamInfo["format"] = stream.format
             streamInfo["#channels"] = stream.channels
-        elif stream.type == 'video':
-            streamInfo["format"] = stream.format
-        streamInfo["samples"] = int(streamInfo["duration"]*streamInfo["rate"])
-        if samples is not None:
-            streamInfo["samples"] = samples[i]
-
+        # Extract timestamp if there is any
+        for key in ["TIMESTAMP", "Timestamp", "timestamp"]:
+            if key in stream.metadata:
+                streamInfo["timestamp"] = float(stream.metadata[key])
+                break
+        # Extract the channel tags / measures 
         channelTags = channelTags = ["C" + str(i) for i in range(stream.channels)]
         for key in ["CHANNEL_TAGS", "Channel_tags"]:
             if key in stream.metadata:
@@ -1229,7 +1708,9 @@ def info(path: str, format: Optional[str]=None, option: list=[]) -> dict:
                 break;
         streamInfo["measures"] = channelTags
         info["streams"].append(streamInfo)
-        info["stream" + str(i)] = streamInfo
+    # Duration of container is longest duration of all streams
+    
+    info["duration"] = max([info["streams"][i]["duration"] for i in range(len(container.streams))])
     return info
 
 
