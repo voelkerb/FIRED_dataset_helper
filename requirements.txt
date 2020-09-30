@@ -1,0 +1,6 @@
+pytz
+pandas
+numpy
+av
+scipy
+typing
