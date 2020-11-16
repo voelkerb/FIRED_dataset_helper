@@ -8,6 +8,7 @@ register_matplotlib_converters()
 import json
 import numpy as np
 import av
+import subprocess
 from scipy.signal import find_peaks
 from typing import Union, List, Tuple, Optional
 
@@ -46,6 +47,10 @@ CHANGING_DEVICE_INFO_FILENAME = "changingDevice.csv"
 DEVICE_MAPPING_FILENAME = "deviceMapping.json"
 DEVICE_INFO_FILENAME = "deviceInfo.json"
 LIGHTS_POWER_INFO_FILENAME = "lightsPower.json"
+RSYNC_PWD_FILE = "rsync_pass.txt"
+
+RSYNC_ALLOWED = True
+RSYNC_ADDR = "rsync://FIRED@clu.informatik.uni-freiburg.de/FIRED/"
 
 # What is seen as actual NIGHT hour 
 # Within this time period (hours am), base power is extracted
@@ -207,6 +212,10 @@ def getChangingMeter() -> Optional[str]:
     try: return next(key for key in mapping if CHANGING_DEVICE in mapping[key]["appliances"])
     except StopIteration: return None
 
+def getRSYNCPwdFile() -> str:
+    __checkBase()
+    return os.path.join(FIRED_BASE_FOLDER, INFO_FOLDER_NAME, RSYNC_PWD_FILE)
+
 
 def getChangingDevices() -> list:
     """Return all appliances connected to the changing meter."""
@@ -217,7 +226,12 @@ def getChangingDevices() -> list:
 def getChangingDeviceInfo() -> List[dict]:
     """Return info for appliances connected to the changing meter."""
     __checkBase()
-    return loadCSV(os.path.join(FIRED_BASE_FOLDER, ANNOTATION_FOLDER_NAME, CHANGING_DEVICE_INFO_FILENAME))
+    info = loadCSV(os.path.join(FIRED_BASE_FOLDER, ANNOTATION_FOLDER_NAME, CHANGING_DEVICE_INFO_FILENAME))
+    # Add safe margin for changing device
+    for row in info:
+        row["startTs"] -= 60
+        row["stopTs"] += 60
+    return info
 
 
 def getDeviceMapping() -> dict:
@@ -277,13 +291,15 @@ def getHighFreqPath() -> str:
 
 
 def getRecordingRange(startStr: Optional[str]=None, endStr: Optional[str]=None) -> Tuple[float, float]:
-    """
+    r"""
     Return start and stop timestamp of recording.
     If start and/or end is given, max(recordingStart, start) and min(recordingStop, end) is given.
-
-    :param startStr: start timestamp in string representation that is checked for validity or None
+    
+    :param startStr: start timestamp in string representation that is checked for validity or None.
+                     Format is: \"%Y.%m.%d\" or \"%Y.%m.%d %H:%M:%S\".
     :type  startStr: str or None
-    :param stopStr: start timestamp in string representation  that is checked for validity or None
+    :param stopStr:  start timestamp in string representation  that is checked for validity or None.
+                     Format is: \"%Y.%m.%d\" or \"%Y.%m.%d %H:%M:%S\".
     :type  startStr: str or None
 
     :return: start and end timestamp 
@@ -454,6 +470,16 @@ def convertToTimeRange(data: list, clipLonger: Optional[float]=None, clipTo: flo
         rangeData.append(newEntry)
     return rangeData
 
+def typeFromApplianceName(name):
+    types = {"laptop":"laptop", 
+             " pc":"pc", "light":"light", "grinder":"grinder", 
+             "charger":"charger",
+             "router":"router",
+             "access point":"router",
+             "display":"monitor",}
+    for t in types: 
+        if t in name: return types[t]
+    return name 
 
 def getApplianceList(meter: Optional[str]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None) -> list:
     """
@@ -734,31 +760,33 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
     __checkBase()
     if startTs is None: startTs = getRecordingRange()[0]
     if stopTs is None: stopTs = getRecordingRange()[1]
+
+    files = getMeterFiles(meter, samplingrate, data="VI", startTs=startTs, stopTs=stopTs, verbose=verbose)
+
     # Get correct data path depending on data and sr
-    if data =="VI": directory = os.path.join(getHighFreqPath(), meter)
-    if data =="PQ" and samplingrate is not None and samplingrate > 1.0: directory = os.path.join(get50HzSummaryPath(), meter)
-    else: directory = os.path.join(get1HzSummaryPath(), meter)
+    # if data =="VI": directory = os.path.join(getHighFreqPath(), meter)
+    # if data =="PQ" and samplingrate is not None and samplingrate > 1.0: directory = os.path.join(get50HzSummaryPath(), meter)
+    # else: directory = os.path.join(get1HzSummaryPath(), meter)
 
     # As os.walk is pretty slow here, we constuct the filename as it is known
     # NOTE: we cannot do this due to filenames might be different if device recovered
     # coarseStartTime = datetime.fromtimestamp(startTs).replace(second=0, microsecond=0)
     # fileNames = meter + "_" + 
-    files = []
-    ct = None
-    for file in sorted(os.listdir(directory)):
-        # not a matroska file
-        if ".mkv" not in file: continue
-        ts = filenameToTimestamp(file)
-        # could not extract timestamp
-        if ts is None: continue
-        # This is much much quicker than opening all files
-        if data =="VI":
-            # get full 10 minutes
-            ts_end = int((int(ts)+10*60)/(10*60))*10*60
-        else: ts_end = ts+24*60*60
-        if ts_end <= startTs: continue
-        if ts >= stopTs: break # only works if files are sorted
-        files.append(os.path.join(directory, file))
+
+    # for file in sorted(os.listdir(directory)):
+    #     # not a matroska file
+    #     if ".mkv" not in file: continue
+    #     ts = filenameToTimestamp(file)
+    #     # could not extract timestamp
+    #     if ts is None: continue
+    #     # This is much much quicker than opening all files
+    #     if data =="VI":
+    #         # get full 10 minutes
+    #         ts_end = int((int(ts)+10*60)/(10*60))*10*60
+    #     else: ts_end = ts+24*60*60
+    #     if ts_end <= startTs: continue
+    #     if ts >= stopTs: break # only works if files are sorted
+    #     files.append(os.path.join(directory, file))
     
     if verbose: print(files)
     current = startTs
@@ -775,7 +803,9 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
     while timestamp < stopTs:
         # Not inited at all
         if chunk is None:
-            data = loadAudio(files[fileIndex])[0]
+            audio = loadAudio(files[fileIndex])
+            if audio is None or len(audio) == 0: return
+            data = audio[0]
             data["phase"] = deviceMapping[meter]["phase"]
             
             if verbose and samplingrate is not None and samplingrate != data["samplingrate"]:
@@ -825,7 +855,9 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
         # Load next and check distance
         fileIndex += 1
         if fileIndex < len(files): 
-            data = loadAudio(files[fileIndex])[0]
+            audio = loadAudio(files[fileIndex])
+            if audio is None or len(audio) == 0: return
+            data = audio[0]
             fileI = 0
             missingSamples = int((data["timestamp"] - eof)*data["samplingrate"])
             if verbose and missingSamples > 0:
@@ -887,10 +919,60 @@ def getMeterVI(meter: str, samplingrate: Optional[float]=None, startTs: Optional
     if startTs is None: startTs = getRecordingRange()[0]
     if stopTs is None: stopTs = getRecordingRange()[1]
     # Use generator object
-    return [c for c in getMeterChunk(meter, (stopTs - startTs), data="VI", startTs=startTs, stopTs=stopTs, samplingrate=samplingrate, verbose=verbose)][0]
+    data = [c for c in getMeterChunk(meter, (stopTs - startTs), data="VI", startTs=startTs, stopTs=stopTs, samplingrate=samplingrate, verbose=verbose)]
+    if len(data) > 0: return data[0]
+    else: return None
 
 
-def getMeterFiles(meter: str, samplingrate: float, data: Optional[str]="PQ", startTs: Optional[float]=None, stopTs: Optional[float]=None, verbose: int=0) -> dict:
+def getMeterFiles(meter: str, samplingrate: float, data: Optional[str]="PQ", startTs: Optional[float]=None, stopTs: Optional[float]=None, verbose: int=2) -> list:
+    if startTs is None: startTs = getRecordingRange()[0]
+    if stopTs is None: stopTs = getRecordingRange()[1]
+
+    if data == "VI": directory = os.path.join(getHighFreqPath(), meter)
+    elif data == "PQ" and samplingrate is not None and samplingrate > 1.0: directory = os.path.join(get50HzSummaryPath(), meter)
+    else: directory = os.path.join(get1HzSummaryPath(), meter)
+
+    files = []
+    if data == "VI":
+        ts = int(int(startTs)/(10*60))*10*60
+        while ts < stopTs:
+            f = os.path.join(directory, meter + "_" + datetime.fromtimestamp(ts).strftime(STORE_TIME_FORMAT) + ".mkv")
+            files.append(f) 
+            # get next full 10 minutes
+            ts = int((int(ts)+10*60)/(10*60))*10*60
+    else:
+        startDate = datetime.fromtimestamp(startTs).replace(hour=0, minute=0, second=0, microsecond=0)
+        stopDate = datetime.fromtimestamp(stopTs)
+        # Special case of data until midnight (next day wont be loaded)
+        if stopDate == stopDate.replace(hour=0, minute=0, second=0, microsecond=0): stopDate = stopDate - timedelta(days=1)
+        else: stopDate = stopDate.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        dates = [startDate]
+        while startDate < stopDate:
+            startDate += timedelta(days=1)
+            dates.append(startDate)
+        files = [os.path.join(directory, meter + "_" + date.strftime(STORE_TIME_FORMAT) + ".mkv") for date in dates]
+    for file in files:
+        if verbose: print(file)
+        if not os.path.exists(file) and not RSYNC_ALLOWED: sys.exit("\033[91mFile {} does not exist\033[0m".format(file))
+        if not os.path.exists(file) and RSYNC_ALLOWED:
+            if verbose: 
+                print("File: {} dows not exist, using rsync to download".format(file))
+            dest = os.path.dirname(file)
+            os.makedirs(dest, exist_ok=True)
+            rsyncSubPath = file.split(FIRED_BASE_FOLDER)[-1].replace(os.path.sep, "/")
+            cmd = "rsync --password-file={} {}{} {}".format(getRSYNCPwdFile(), RSYNC_ADDR, rsyncSubPath, dest)
+            if verbose:
+                print(cmd)
+                OUT = subprocess.PIPE 
+            else: OUT = open(os.devnull, 'w')
+            process = subprocess.Popen(cmd, stdout=OUT, stderr=OUT, shell=True)
+            process.wait()
+            if verbose and not os.path.exists(file): print("error retreiving file")
+    return files
+
+
+def getMeterFiles2(meter: str, samplingrate: float, data: Optional[str]="PQ", startTs: Optional[float]=None, stopTs: Optional[float]=None, verbose: int=0) -> list:
     """
     Return files required for given meter and timestamp. 
 
@@ -1001,6 +1083,7 @@ def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float]=None
     #     except StopIteration: return None
     fromSample = int((startTs - data["timestamp"])*data["samplingrate"])
     toSample = int((stopTs - data["timestamp"])*data["samplingrate"])
+
     data["data"] = data["data"][fromSample:toSample]
     data["timestamp"] = startTs
     if verbose: 
@@ -1023,6 +1106,12 @@ def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float]=None
     data["phase"] = deviceMapping[meter]["phase"]
     data["samples"] = len(data["data"])
     data["duration"] = data["samples"]/data["samplingrate"]
+
+    # prevent memory leak by copying over and delete larger one
+    new = np.recarray((data["samples"],), dtype=data["data"].dtype).view(np.recarray)
+    new[:] = data["data"][:]
+    del data["data"]
+    data["data"] = new
     return data
 
 
