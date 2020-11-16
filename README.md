@@ -44,10 +44,10 @@ You can also use Annoticity to download the 50Hz power file of a particular devi
 ## Sample Data
 
 An example of one day of electricity consumption can be seen below. By estimating the base power during night times, the aggregated power matches the sum of the base power and the indivdual appliance data. 
-![wholeHouse](wholeHouse.png)
+![wholeHouse](docu/wholeHouse.png)
 
 The data richness of the raw data stream can be seen in the following figure. Raw data is sampled at 8kHz for the SmartMeter and 2kHz for the individual appliance data.
-![viCurve](viCurve.png)
+![viCurve](docu/viCurve.png)
 
 ## Appliances
 
