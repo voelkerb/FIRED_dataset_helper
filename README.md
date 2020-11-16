@@ -118,12 +118,15 @@ The helper module makes using the dataset a breeze.
 ```python
 import helper as hp
 
+# Set FIRED base Folder (location where you downloaded the dataset)
+hp.FIRED_BASE_FOLDER = "~/FIRED"
+
 # load 1Hz power data of the television for complete recording range
 television = hp.getPower("television", 1)
 
-# load 50Hz power data of powermeter09 (Fridge) of day 2020.07.02
-startTs,  stopTs = hp.getRecordingRange("2020.07.02", "2020.07.03")
-fridge = hp.getMeterPower("powermeter09", 50, startTs=startTs, stopTs=end)
+# load 2h of 50Hz power data of powermeter09 (Fridge) of day 2020.08.03
+startTs, stopTs = hp.getRecordingRange("2020.08.03 17:25:00", "2020.08.03 19:25:00")
+fridge = hp.getMeterPower("powermeter09", 50, startTs=startTs, stopTs=stopTs)
 ```
 
 Plotting the data is straightforward:
@@ -131,17 +134,17 @@ Plotting the data is straightforward:
 import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
-
+# Construct timestamps
 start = fridge["timestamp"]
 end = start+(len(fridge["data"])/fridge["samplingrate"])
 timestamps = np.linspace(start, end, len(fridge["data"])
 dates = [datetime.fromtimestamp(ts) for ts in timestamps]
-
+# Plot data
 fig, ax = plt.subplots()
 ax.plot(dates, fridge["data"]["p"], label="active power")
 ax.plot(dates, fridge["data"]["q"], label="reactive power")
-
-ax.set(xlabel='Time of day', ylabel='Power (W/var)', title='Fridge')
+# Format plot
+ax.set(xlabel='Time of day', ylabel='Power [W/var]', title='Fridge')
 fig.autofmt_xdate()
 plt.show()
 

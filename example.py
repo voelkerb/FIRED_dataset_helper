@@ -34,6 +34,7 @@ plt.legend()
 plt.show()
 
 # %%
+# Data is now loaded on the fly over rsync
 hp.RSYNC_ALLOWED = True
 # load two seconds of high freq data powermeter09 (Fridge)
 startTs, stopTs = hp.getRecordingRange("2020.08.03 17:34:02", "2020.08.03 17:34:04")
@@ -51,5 +52,3 @@ ax.plot(dates, fridge["data"]["i"], label="current")
 ax.set(xlabel='Time of day', ylabel='Current [mA]', title='Fridge')
 plt.setp(ax.get_xticklabels(), ha="center", rotation=35)
 plt.show()
-
-# %%
