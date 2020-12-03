@@ -104,6 +104,11 @@ The data richness of the raw data stream can be seen in the following figure. Ra
 | 1        | Access Point \#3       | Apple     | Airport Express A1392          | 2\.2     | 26          |
 | 1        | Recording PC           | Intel     | NUC8v5PNK                      | 60       | 27          |
 
+## Known Issues
+
+Smartmeter Data (current L3) is corrupt every now and then after 08/30/2020 14:00
+(we think it is a bad soldering joint or bad connection of the CT)
+
 ## Installation
 
 Required python packages: numpy, pandas, scipy, json and pyav.
