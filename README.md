@@ -120,7 +120,7 @@ The installation of pyav is a little tricky, as we require to build it from sour
 Some of this may require sudo privileges.
 ```bash
 git clone https://github.com/pscholl/PyAV.git
-cd PyAv
+cd PyAV
 git checkout origin/phil
 python3 setup.py install
 ```
