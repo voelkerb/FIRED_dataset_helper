@@ -116,7 +116,14 @@ To install:
 ```bash
 pip install -r requirements.txt
 ```
-
+The installation of pyav is a little tricky, as we require to build it from source.
+Some of this may require sudo privileges.
+```bash
+git clone https://github.com/pscholl/PyAV.git
+cd PyAv
+git checkout origin/phil
+python3 setup.py install
+```
 ## How to Use
 
 The helper module makes using the dataset a breeze.
