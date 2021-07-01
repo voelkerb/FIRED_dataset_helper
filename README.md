@@ -40,7 +40,6 @@ The 50Hz power data is also available within the [Annoticity tool](https://earth
 Annoticty allows to visually inspect and label electricity datasets like FIRED.
 You can also use Annoticity to download the 50Hz power file of a particular device in FIRED.
 
-
 ## Sample Data
 
 An example of one day of electricity consumption can be seen below. By estimating the base power during night times, the aggregated power matches the sum of the base power and the indivdual appliance data. 
@@ -48,6 +47,13 @@ An example of one day of electricity consumption can be seen below. By estimatin
 
 The data richness of the raw data stream can be seen in the following figure. Raw data is sampled at 8kHz for the SmartMeter and 2kHz for the individual appliance data.
 ![viCurve](docu/viCurve.png)
+
+## Measurement Hardware
+
+The DAQ was comprised of a custom-built smart meter (see [SmartMeter](https://github.com/voelkerb/smartmeter)) and 21 distributed plug-level meters (see [PowerMeter](https://github.com/voelkerb/smartmeter)). Both streamed their data over TCP (via WiFi and Ethernet) to a central PC in the network for persistent storage. The data was time synchronized using Real Time Clocks and NTP.  
+
+
+
 
 ## Appliances
 
