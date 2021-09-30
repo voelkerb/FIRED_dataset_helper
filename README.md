@@ -1,4 +1,4 @@
-# The Fully-labeled hIgh-fRequencyElectricity Disaggregation (FIRED) dataset
+# The Fully-labeled hIgh-fRequency Electricity Disaggregation (FIRED) dataset
 
 Python module to load and interact with the FIRED dataset. 
 The files contain scripts to generate several statistics and plots from the data.
