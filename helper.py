@@ -331,10 +331,10 @@ def getRecordingRange(startStr: Optional[str]=None, endStr: Optional[str]=None) 
     summaryPath = get50HzSummaryPath()
     firstFolder = min(os.path.join(summaryPath, p) for p in os.listdir(summaryPath)
                       if os.path.isdir(os.path.join(summaryPath, p)))
-
     allFiles = sorted([os.path.join(firstFolder, p) for p in os.listdir(firstFolder)
-                       if os.path.isfile(os.path.join(firstFolder, p))])
+                       if os.path.isfile(os.path.join(firstFolder, p)) and "mkv" in p.split(".")])
 
+    if len(allFiles) < 1: return [None, None]
     start = filenameToTimestamp(allFiles[0])
     durLast = info(allFiles[-1])["streams"][0]["duration"]
     end = filenameToTimestamp(allFiles[-1]) + durLast
@@ -822,7 +822,7 @@ def delDownloads():
         except subprocess.CalledProcessError: pass
     _loadedFiles = []
 
-def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Optional[float]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None) -> dict:
+def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Optional[float]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None, channel: Optional[int]=0) -> dict:
     """
     Return data of given meter in a as chunks of given size.
 
@@ -876,7 +876,7 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
             end = inf["timestamp"]+inf["duration"]
             dur = -1
             if stopTs < end: dur = stopTs-(inf["timestamp"]+start)
-            audio = loadAudio(files[fileIndex], start=start, duration=dur)
+            audio = loadAudio(files[fileIndex], streamsToLoad=[channel], start=start, duration=dur)
             if audio is None or len(audio) == 0: return
             data = audio[0]
             data["phase"] = deviceMapping[meter]["phase"]
@@ -938,7 +938,7 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
             dur = stopTs-eof
             # Strange things if we use exact dur, so use an extra second, it is cut later
             # NOTE: Maybe we are missing samples sometimes due to milliseconds resolution of pyav?
-            audio = loadAudio(files[fileIndex], duration=dur+1)
+            audio = loadAudio(files[fileIndex], streamsToLoad=[channel], duration=dur+1)
             if audio is None or len(audio) == 0: return
             data = audio[0]
             fileI = 0
@@ -981,7 +981,7 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
         if finish: return
 
 
-def getMeterVI(meter: str, samplingrate: Optional[float]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None) -> dict:
+def getMeterVI(meter: str, samplingrate: Optional[float]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None, phase: Optional[int]=None, smartmeterMergePhases: Optional[bool] = False) -> dict:
     """
     Return vi of given meter.
 
@@ -1000,13 +1000,33 @@ def getMeterVI(meter: str, samplingrate: Optional[float]=None, startTs: Optional
     __checkBase()
     if startTs is None: startTs = getRecordingRange()[0]
     if stopTs is None: stopTs = getRecordingRange()[1]
-    # Use generator object
-    data = [c for c in getMeterChunk(meter, (stopTs - startTs), data="VI", startTs=startTs, stopTs=stopTs, samplingrate=samplingrate)]
-    # On flip, flip all measurements
-    if _getFlip(meter):
-        for i in range(len(data)):
-            for m in data[i]["measures"]: data[i]["data"][m] *= -1
-    if len(data) > 0: return data[0]
+     # Standard is first stream in the data
+    stream = [0]
+    # For smartmeter we have 3 streams
+    if meter == getSmartMeter():
+        stream = [0,1,2]
+        # if specific phase is requested
+        if phase is not None:
+            stream = [phase - 1]
+    # Can only request specific stream for smartmeters
+    else:
+        assert phase == None, 'Can only return specific phase for recording of smartmeter'
+    
+    allData = []
+    for s in stream:
+        # Use generator object
+        data = [c for c in getMeterChunk(meter, (stopTs - startTs), data="VI", startTs=startTs, stopTs=stopTs, samplingrate=samplingrate, channel=s)]
+        # On flip, flip all measurements
+        if _getFlip(meter):
+            for i in range(len(data)):
+                for m in data[i]["measures"]: data[i]["data"][m] *= -1
+        allData.append(data[0])
+
+    if smartmeterMergePhases:
+        allData = [mergeSmartmeterChannels(allData)]
+
+    if len(allData) == 1: return allData[0]
+    elif len(allData) > 0: return allData
     else: return None
 
 
@@ -1127,7 +1147,7 @@ def getMeterFiles2(meter: str, samplingrate: float, data: Optional[str]="PQ", st
 
 
 def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float] = None, stopTs: Optional[float] = None,
-                  phase: Optional[float] = None) -> dict:
+                  phase: Optional[int] = None, smartmeterMergePhases: Optional[bool] = False) -> dict:
     """
     Return power of given meter.
 
@@ -1151,76 +1171,110 @@ def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float] = No
     if stopTs is None:
         stopTs = getRecordingRange()[1]
     files = getMeterFiles(meter, samplingrate, startTs=startTs, stopTs=stopTs)
-    if VERBOSE:
-        print("{}: Loading MKV...".format(meter), end="", flush=True)
-    idx = 0
-    if phase is not None:
-        idx = phase - 1
-    data = [loadAudio(file)[idx] for file in files]
-    if VERBOSE:
-        print("Done")
-    if len(data) < 1:
-        return None
-    dataNice = data[0]
-    # Concat data of several files
-    if len(data) > 1:
-        for d in data[1:]:
-            dataNice["data"] = np.concatenate((dataNice["data"], d["data"]))
 
-    data = dataNice
-
-    # Using summary file
-    # # This is using the summary file, maybe we can use individual files to boost things
-    # file = getSummaryFilePath()
-    # if VERBOSE: print("{}: Loading 1Hz combined...".format(meter), end="", flush=True)
-    # dataList = loadAudio(file)
-    # if VERBOSE: print("Done")
-    # try: data = next(d for d in dataList if d["title"] == meter)
-    # except StopIteration: return None
-
-    fromSample = int((startTs - data["timestamp"]) * data["samplingrate"])
-    toSample = int((stopTs - data["timestamp"]) * data["samplingrate"])
-
-    data["data"] = data["data"][fromSample:toSample]
-    data["timestamp"] = startTs
-
-    if VERBOSE:
-        print("{}->{}: len({})".format(time_format_ymdhms(startTs), time_format_ymdhms(stopTs), len(data["data"])))
-
-    if samplingrate != 1 and samplingrate != 50:
+    # Standard is first stream in the data
+    stream = [0]
+    # For smartmeter we have 3 streams
+    if meter == getSmartMeter():
+        stream = [0,1,2]
+        # if specific phase is requested
+        if phase is not None:
+            stream = [phase - 1]
+    # Can only request specific stream for smartmeters
+    else:
+        assert phase == None, 'Can only return specific phase for recording of smartmeter'
+    
+    # Return data is either dict for individual meters or list of 3 dicts for smartmeter 
+    returnData = []
+    for s in stream:
         if VERBOSE:
-            print("resampling")
-        data["data"] = resampleRecord(data["data"], data["samplingrate"], samplingrate)
-        data["samplingrate"] = samplingrate
+            print("{}: Loading MKV stream {}...".format(meter, s), end="", flush=True)
+        data = [loadAudio(file, streamsToLoad=[s])[0] for file in files]
+        if VERBOSE:
+            print("Done")
+        if len(data) < 1:
+            return None
+        dataNice = data[0]
+        # Concat data of several files
+        if len(data) > 1:
+            for d in data[1:]:
+                dataNice["data"] = np.concatenate((dataNice["data"], d["data"]))
 
-    goalSamples = int(data["samplingrate"] * (stopTs - startTs))
+        data = dataNice
 
-    if abs(goalSamples - len(data["data"])) > data["samplingrate"]:
-        print(f"\033[91mError loading data for {meter}. Requested samples: {goalSamples}, "
-              f"actual samples: {len(data['data'])}\033[0m")
+        fromSample = int((startTs - data["timestamp"]) * data["samplingrate"])
+        toSample = int((stopTs - data["timestamp"]) * data["samplingrate"])
 
-    if goalSamples > len(data["data"]):
-        new = np.recarray((goalSamples - len(data["data"]),), dtype=data["data"].dtype).view(np.recarray)
+        data["data"] = data["data"][fromSample:toSample]
+        data["timestamp"] = startTs
+
+        if VERBOSE:
+            print("{}->{}: len({})".format(time_format_ymdhms(startTs), time_format_ymdhms(stopTs), len(data["data"])))
+
+        if samplingrate != 1 and samplingrate != 50:
+            if VERBOSE:
+                print("resampling")
+            data["data"] = resampleRecord(data["data"], data["samplingrate"], samplingrate)
+            data["samplingrate"] = samplingrate
+
+        goalSamples = int(data["samplingrate"] * (stopTs - startTs))
+
         if abs(goalSamples - len(data["data"])) > data["samplingrate"]:
-            new[:] = 0
-        else:
-            new[:] = data["data"][-1]
-        data["data"] = np.concatenate((data["data"], new))
-    elif goalSamples < len(data["data"]):
-        data["data"] = data["data"][:goalSamples]
+            print(f"\033[91mError loading data for {meter}. Requested samples: {goalSamples}, "
+                f"actual samples: {len(data['data'])}\033[0m")
 
-    deviceMapping = getDeviceMapping()
-    data["phase"] = deviceMapping[meter]["phase"]
-    data["samples"] = len(data["data"])
-    data["duration"] = data["samples"] / data["samplingrate"]
+        if goalSamples > len(data["data"]):
+            new = np.recarray((goalSamples - len(data["data"]),), dtype=data["data"].dtype).view(np.recarray)
+            if abs(goalSamples - len(data["data"])) > data["samplingrate"]:
+                new[:] = 0
+            else:
+                new[:] = data["data"][-1]
+            data["data"] = np.concatenate((data["data"], new))
+        elif goalSamples < len(data["data"]):
+            data["data"] = data["data"][:goalSamples]
 
-    # prevent memory leak by copying over and delete larger one
-    new = np.recarray((data["samples"],), dtype=data["data"].dtype).view(np.recarray)
-    new[:] = data["data"][:]
-    del data["data"]
-    data["data"] = new
-    return data
+        deviceMapping = getDeviceMapping()
+        data["phase"] = deviceMapping[meter]["phase"]
+        data["samples"] = len(data["data"])
+        data["duration"] = data["samples"] / data["samplingrate"]
 
+        # prevent memory leak by copying over and delete larger one
+        new = np.recarray((data["samples"],), dtype=data["data"].dtype).view(np.recarray)
+        new[:] = data["data"][:]
+        del data["data"]
+        data["data"] = new
+        returnData.append(data)
+    if smartmeterMergePhases:
+        returnData = [mergeSmartmeterChannels(returnData)]
+        
+    if len(returnData) == 1: return returnData[0]
+    elif len(returnData) > 0: return returnData
+    else: return None
+
+def mergeSmartmeterChannels(dataList):
+    """
+    Return smartmeter data merged into one dictionary.
+
+    :param dataList: List of dictionaries
+    :type  dataList: str
+
+    :return: dict of power data or list of dict for devices connected to multiple phases
+    :rtype: dict or list
+    """
+    assert len(dataList) == 3, "This is no valid smartmeter data"
+    oldMeasures = dataList[0]["data"].dtype.names
+    newMeasures = [m + "_l" + str(i) for i in [1,2,3] for m in oldMeasures]
+    print(newMeasures)
+    dt = [(m, '<f4') for m in newMeasures]
+    newData = np.recarray((len(dataList[0]["data"]),), dtype=dt).view(np.recarray)
+    for i in [1,2,3]:
+        for m in oldMeasures: newData[m + "_l" + str(i)] = dataList[i-1]["data"][m]
+    dataDic = dataList[0]
+    dataDic["data"] = newData
+    dataDic["title"] = dataDic["title"].split(" ")[0]
+    dataDic["measures"] = newMeasures
+    dataDic["channels"] = len(newMeasures)
+    return dataDic
 
 def getPower(appliance: str, samplingrate: int, startTs: Optional[float]=None, stopTs: Optional[float]=None) -> Union[list, dict]:
     """
