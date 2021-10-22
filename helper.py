@@ -92,7 +92,7 @@ def filenameToTimestamp(filename: str, format: str="%Y_%m_%d__%H_%M_%S") -> Opti
     Return time stamp of a given file
 
     :param filename: filename or filepath
-    :type  filename: str 
+    :type  filename: str
     :param format: format of time in filename, default: \"%Y_%m_%d__%H_%M_%S\"
     :type  format: str
 
@@ -116,11 +116,11 @@ def loadCSV(filepath: str, delimiter: str=DELIMITER) -> List[dict]:
     First row in file determines dictionary keys
 
     :param filepath: filepath
-    :type  filepath: str 
+    :type  filepath: str
     :param delimiter: column seperator in file.
     :type  delimiter: str
 
-    :return: Data in csv 
+    :return: Data in csv
     :rtype: list
     """
     def dateparse(timestamp:float):
@@ -128,7 +128,7 @@ def loadCSV(filepath: str, delimiter: str=DELIMITER) -> List[dict]:
     data = pd.read_csv(filepath, delimiter=delimiter, parse_dates=True, date_parser=dateparse).to_dict('r')
     return data
 
-  
+
 def writeCSV(filepath: str, dataList: list, keys: List[str]=[], delimiter: str=DELIMITER):
     """
     Write data to given CSV file.
@@ -136,15 +136,15 @@ def writeCSV(filepath: str, dataList: list, keys: List[str]=[], delimiter: str=D
     All list entries should have the same dictionary keys
 
     :param filepath: filepath
-    :type  filepath: str 
+    :type  filepath: str
     :param dataList: Data as list of dictionaries
-    :type  dataList: list 
+    :type  dataList: list
     :param keys: Keys of dictionary as list. If not given explicitly, all keys in list[0] entry are use.
-    :type  keys: List of str 
+    :type  keys: List of str
     :param delimiter: column seperator in file.
     :type  delimiter: str
 
-    :return: Data in csv 
+    :return: Data in csv
     :rtype: dict
     """
     if len(dataList) == 0: return
@@ -164,14 +164,14 @@ def __openJson(file:str) -> Union[dict, None]:
     Open given json file.
 
     :param file: filepath
-    :type  file: str 
+    :type  file: str
 
-    :return: Data in json file 
+    :return: Data in json file
     :rtype: dict or None
     """
     mapping = None
     with open(file) as json_file:
-        mapping = json.load(json_file) 
+        mapping = json.load(json_file)
     return mapping
 
 
@@ -317,7 +317,7 @@ def getRecordingRange(startStr: Optional[str]=None, endStr: Optional[str]=None) 
     r"""
     Return start and stop timestamp of recording.
     If start and/or end is given, max(recordingStart, start) and min(recordingStop, end) is given.
-    
+
     :param startStr: start timestamp in string representation that is checked for validity or None.
                      Format is: \"%Y.%m.%d\" or \"%Y.%m.%d %H:%M:%S\".
     :type  startStr: str or None
@@ -325,14 +325,16 @@ def getRecordingRange(startStr: Optional[str]=None, endStr: Optional[str]=None) 
                      Format is: \"%Y.%m.%d\" or \"%Y.%m.%d %H:%M:%S\".
     :type  startStr: str or None
 
-    :return: start and end timestamp 
+    :return: start and end timestamp
     :rtype: Tuple(float, float)
     """
     summaryPath = get50HzSummaryPath()
-    firstFolder = os.path.join(summaryPath, next(os.path.join(summaryPath, p) for p in os.listdir(summaryPath) if os.path.isdir(os.path.join(summaryPath, p))))
-    
-    allFiles = sorted([os.path.join(firstFolder, p) for p in os.listdir(firstFolder) if os.path.isfile(os.path.join(firstFolder, p))])
-    
+    firstFolder = min(os.path.join(summaryPath, p) for p in os.listdir(summaryPath)
+                      if os.path.isdir(os.path.join(summaryPath, p)))
+
+    allFiles = sorted([os.path.join(firstFolder, p) for p in os.listdir(firstFolder)
+                       if os.path.isfile(os.path.join(firstFolder, p))])
+
     start = filenameToTimestamp(allFiles[0])
     durLast = info(allFiles[-1])["streams"][0]["duration"]
     end = filenameToTimestamp(allFiles[-1]) + durLast
@@ -346,6 +348,7 @@ def getRecordingRange(startStr: Optional[str]=None, endStr: Optional[str]=None) 
         else:
             offsetHour = time.timezone / 3600
         return pytz.timezone('Etc/GMT%+d' % offsetHour)
+
     thisTz = localTz()
 
     start = datetime.fromtimestamp(start).astimezone(tzOFRec).astimezone(thisTz).timestamp()
@@ -356,16 +359,20 @@ def getRecordingRange(startStr: Optional[str]=None, endStr: Optional[str]=None) 
     if (nextDay.timestamp() - endDate.timestamp()) < 2: end = nextDay.timestamp()
 
     if startStr is not None:
-        if len(startStr.split(" ")) > 1: startTs = datetime.strptime(startStr, "%Y.%m.%d %H:%M:%S").timestamp()
-        else: startTs = datetime.strptime(startStr, "%Y.%m.%d").timestamp()
+        if len(startStr.split(" ")) > 1:
+            startTs = datetime.strptime(startStr, "%Y.%m.%d %H:%M:%S").timestamp()
+        else:
+            startTs = datetime.strptime(startStr, "%Y.%m.%d").timestamp()
         start = max(startTs, start)
     if endStr is not None:
-        if len(endStr.split(" ")) > 1: stopTs = datetime.strptime(endStr, "%Y.%m.%d %H:%M:%S").timestamp()
-        else: stopTs = datetime.strptime(endStr, "%Y.%m.%d").timestamp()
+        if len(endStr.split(" ")) > 1:
+            stopTs = datetime.strptime(endStr, "%Y.%m.%d %H:%M:%S").timestamp()
+        else:
+            stopTs = datetime.strptime(endStr, "%Y.%m.%d").timestamp()
         end = min(stopTs, end)
-    
+
     return start, end
-    
+
 
 def loadAnnotationInfo(filepath: str) -> Optional[dict]:
     """
@@ -374,13 +381,13 @@ def loadAnnotationInfo(filepath: str) -> Optional[dict]:
     :param filepath: filepath of annotation file
     :type  filepath: str
 
-    :return: Dictionary with extracted annotation info or None 
+    :return: Dictionary with extracted annotation info or None
     :rtype: None or dict
     """
     splits = os.path.basename(filepath).split(".")[0].split(DIVIDER)
     type = splits[0].lower()
     if type not in ANNOTATION_TYPES: return None
-    room = splits[1].replace("_"," ")    
+    room = splits[1].replace("_"," ")
     if type in [LIGHT_ANNOTATION, DEVICE_ANNOTATION]:
         name = splits[2].replace("_"," ")
     elif type == SENSOR_ANNOTATION:
@@ -395,7 +402,7 @@ def loadAnnotationFile(filepath: str) -> Optional[dict]:
     :param filepath: filepath of annotation file
     :type  filepath: str
 
-    :return: Dictionary with extracted annotation info and data or None 
+    :return: Dictionary with extracted annotation info and data or None
     :rtype: None or dict
     """
     info = loadAnnotationInfo(filepath)
@@ -406,14 +413,14 @@ def loadAnnotationFile(filepath: str) -> Optional[dict]:
 
 def loadAnnotations(type: str, loadData: bool=True) -> Optional[list]:
     """
-    Load all annotations of given type. 
+    Load all annotations of given type.
 
     :param type: Annotation type, must be in ANNOTATION_TYPES
     :type  type: str
-    :param loadData: Load only info to speed up things or also data 
+    :param loadData: Load only info to speed up things or also data
     :type  loadData: bool
 
-    :return: List of Dictionary with extracted annotation info and data or None 
+    :return: List of Dictionary with extracted annotation info and data or None
     :rtype: None or list
     """
     if type not in ANNOTATION_TYPES: return None
@@ -431,12 +438,12 @@ def _getFlip(meterOrAppliance: str) -> bool:
         # Devices not known, flip by default, as we measure N
         if deviceMapping[meterOrAppliance]["flip"] == "unknown": return True
         return deviceMapping[meterOrAppliance]["flip"]
-    else: 
+    else:
         return False
 
 def getPhase(meterOrAppliance: str) -> int:
     """
-    Return the live wire the device is connected to. 
+    Return the live wire the device is connected to.
 
     :param meterOrAppliance: meter name or appliance name
     :type  meterOrAppliance: str
@@ -450,20 +457,20 @@ def getPhase(meterOrAppliance: str) -> int:
         return deviceMapping[meterOrAppliance]["phase"]
     elif meterOrAppliance in deviceInfo:
         return deviceInfo[meterOrAppliance]["phase"]
-    else: 
+    else:
         return -1
 
 
 def convertToTimeRange(data: list, clipLonger: Optional[float]=None, clipTo: float=10*60) -> List[dict]:
     r"""
-    Convert given annotation data to time range. 
+    Convert given annotation data to time range.
     Range is determined between two entries.
     e.g. TS1 off data + TS2 on data -> [off startTs=TS1 stopTs=TS2]
 
     .. code-block:: python3
 
         data = [
-                { "timestamp": <TS1>, <data> }, 
+                { "timestamp": <TS1>, <data> },
                 { "timestamp": <TS2>, <data> }
             ]
 
@@ -472,15 +479,15 @@ def convertToTimeRange(data: list, clipLonger: Optional[float]=None, clipTo: flo
     .. code-block:: python3
 
         data = [
-                { startTs: <TS1>, stopTs: <TS2>, <data> }, 
+                { startTs: <TS1>, stopTs: <TS2>, <data> },
                 { startTs: <TS2>, stopTs: <TS2>+clipTo, <data> }
             ]
 
     :param data: List of annotation entries
     :type  data: list
-    :param clipLonger: States longer that are clipped to parameter clipTo 
+    :param clipLonger: States longer that are clipped to parameter clipTo
     :type  clipLonger: None or float
-    :param clipTo: States longer than clipLonger are clipped to the given value 
+    :param clipTo: States longer than clipLonger are clipped to the given value
     :type  clipTo: float, default: 10 minutes
 
     :return: List of Dictionary with converted info
@@ -489,36 +496,36 @@ def convertToTimeRange(data: list, clipLonger: Optional[float]=None, clipTo: flo
     rangeData = []
     for i, entry in enumerate(data):
         start = entry["timestamp"]
-        if i == len(data)-1: 
+        if i == len(data)-1:
             end = start + clipTo
-        else: 
+        else:
             end = data[i+1]["timestamp"]
         # State longer than 24 hours?
         if clipLonger is not None and end-start > clipLonger: end = start + clipTo
         # Copy over old entries
         newEntry = {k:v for k,v in entry.items()}
-        newEntry["startTs"] = start 
+        newEntry["startTs"] = start
         newEntry["stopTs"] = end
         rangeData.append(newEntry)
     return rangeData
 
 def typeFromApplianceName(name):
-    types = {"laptop":"laptop", 
-             " pc":"pc", "light":"light", "grinder":"grinder", 
+    types = {"laptop":"laptop",
+             " pc":"pc", "light":"light", "grinder":"grinder",
              "charger":"charger",
              "router":"router",
              "access point":"router",
              "display":"monitor",}
-    for t in types: 
+    for t in types:
         if t in name: return types[t]
-    return name 
+    return name
 
 def getApplianceList(meter: Optional[str]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None) -> list:
     """
     Return list of appliance names active in between the given time range.
     Active is defined as metered or connected to changing device or light turned on.
     NOTE: What about stove?
-    
+
     :param meter: one meter
     :type  meter: None or str
     :param startTs: Time range start
@@ -534,7 +541,7 @@ def getApplianceList(meter: Optional[str]=None, startTs: Optional[float]=None, s
     if startTs is None: startTs = getRecordingRange()[0]
     if stopTs is None: stopTs = getRecordingRange()[1]
     deviceMapping = getDeviceMapping()
-    devices = [] 
+    devices = []
 
     if meter is None:
         for key in deviceMapping: devices.extend(deviceMapping[key]["appliances"])
@@ -542,7 +549,7 @@ def getApplianceList(meter: Optional[str]=None, startTs: Optional[float]=None, s
         cdInfo = getChangingDeviceInfo()
         changingDevices = list(set([cdI["name"] for cdI in cdInfo if cdI["startTs"] < stopTs and cdI["stopTs"] > startTs]))
         lightsInfo = loadAnnotations(LIGHT_ANNOTATION, loadData=False)
-        lights = [l["name"] for l in lightsInfo]    
+        lights = [l["name"] for l in lightsInfo]
         appliances = sorted(list(set(devices + changingDevices + lights)))
     else:
         if meter in deviceMapping:
@@ -557,7 +564,7 @@ def getApplianceList(meter: Optional[str]=None, startTs: Optional[float]=None, s
 def resampleRecord(data: np.recarray, inRate: float, outRate: float) -> np.recarray:
     """
     Resample a given numpy record array
-    
+
     :param startTs: Time range start
     :type  startTs: None or float
     :param stopTs: Time range stop
@@ -584,7 +591,7 @@ def bestBasePowerTimeRange(startTs: float, stopTs: float) -> List[dict]:
     Return time ranges to extract base power from given a super time range.
     If no night lies between the time range, the time before the given night is used.
     NOTE: Will cause problems for datasets that start within a day and only this day given
-    
+
     :param startTs: Time range start
     :type  startTs: float
     :param stopTs: Time range stop
@@ -596,7 +603,7 @@ def bestBasePowerTimeRange(startTs: float, stopTs: float) -> List[dict]:
     # More than a day between data
     startDate = datetime.fromtimestamp(startTs)
     stopDate = datetime.fromtimestamp(stopTs)
-    
+
     timeranges = []
     date = startDate
     # if we cannot use startnight
@@ -608,7 +615,7 @@ def bestBasePowerTimeRange(startTs: float, stopTs: float) -> List[dict]:
         date += timedelta(days=1)
     # if we cannot use stopnight
     if stopDate.hour < BASE_NIGHT_RANGE[1]: del timeranges[-1]
-    
+
     if len(timeranges) == 0:
         # use night before then
         tsStart = startDate.replace(hour=BASE_NIGHT_RANGE[0], minute=0, second=0, microsecond=0).timestamp()
@@ -625,10 +632,12 @@ def UTCfromLocalTs(ts):
 def getTimeZone():
     return pytz.timezone("Europe/Berlin")
 
-def getBasePower(samplingrate: int, startTs: Optional[float]=None, stopTs: Optional[float]=None, phase: Union[None,int,List[int]]=None) -> List[dict]:
+
+def getBasePower(samplingrate: int, startTs: Optional[float] = None, stopTs: Optional[float] = None,
+                 phase: Union[None, int, List[int]] = None) -> List[dict]:
     """
-    Return base power dict with given samplingrate for given time and phase. 
-    
+    Return base power dict with given samplingrate for given time and phase.
+
     :param samplingrate: samplingrate of returned power
     :type  samplingrate: int
     :param startTs: Time range start
@@ -642,10 +651,15 @@ def getBasePower(samplingrate: int, startTs: Optional[float]=None, stopTs: Optio
     :rtype: list(dict)
     """
     __checkBase()
-    if startTs is None: startTs = getRecordingRange()[0]
-    if stopTs is None: stopTs = getRecordingRange()[1]
-    if phase is None: phase = [1,2,3]
-    if not isinstance(phase, list): phase = [phase]
+    if startTs is None:
+        startTs = getRecordingRange()[0]
+    if stopTs is None:
+        stopTs = getRecordingRange()[1]
+    if phase is None:
+        phase = [1, 2, 3]
+    if not isinstance(phase, list):
+        phase = [phase]
+
     # get ranges from where to compute base powers
     ranges = bestBasePowerTimeRange(startTs, stopTs)
     smartmeterName = getSmartMeter()
@@ -654,40 +668,45 @@ def getBasePower(samplingrate: int, startTs: Optional[float]=None, stopTs: Optio
 
     # Construct yet empty base power list
     basePowers = {}
-    newSize = int((stopTs-startTs)*samplingrate)
-    rangeSize = sum(int((r["stopTs"]-r["startTs"])*samplingrate) for r in ranges)
-    powers = ["p","q","s"]
+    newSize = int((stopTs - startTs) * samplingrate)
+    rangeSize = sum(int((r["stopTs"] - r["startTs"]) * samplingrate) for r in ranges)
+    powers = ["p", "q", "s"]
     dt = [(m, '<f4') for m in powers]
+
     for p in phase:
         data = np.recarray((rangeSize,), dtype=dt).view(np.recarray)
-        for m in powers: data[m] = 0
-        dataDict = {"title":"basepower", "name":"basepower l" + str(p), "phase":p, 
-                    "data": data, "timestamp":startTs, "type":"audio", 
-                    "samplingrate":samplingrate, "measures":powers}
-        basePowers[p] = dataDict
-    
-    # Loop over all ranges
-    index = 0
-    for r in ranges:
-        # get smartmeter data
-        smData = getMeterPower(smartmeterName, samplingrate, startTs=r["startTs"], stopTs=r["stopTs"])["data"]
-        # add it for each phase
-        for p in phase:
-            for m in powers: 
-                basePowers[p]["data"][m][index:index+len(smData)] = smData[m + "_l" + str(p)]
-        # load meter data
-        for meter in meters:
-            p = deviceMapping[meter]["phase"] 
-            if p not in phase: continue
-            mData = getMeterPower(meter, samplingrate, startTs=r["startTs"], stopTs=r["stopTs"])["data"]
-            # Substract it from each phase
-            for m in powers: basePowers[p]["data"][m][index:index+len(mData)] -= mData[m]
-        index += len(smData)
+
+        # Loop over all ranges
+        index = 0
+        for r in ranges:
+            # get smartmeter data
+            smData = getMeterPower(smartmeterName, samplingrate, startTs=r["startTs"], stopTs=r["stopTs"], phase=p)["data"]
+
+            # add it for each phase
+            for m in powers:
+                data[m] = 0
+                dataDict = {"title": "basepower", "name": "basepower l" + str(p), "phase": p, "data": data,
+                            "timestamp": startTs, "type": "audio", "samplingrate": samplingrate, "measures": powers}
+                basePowers[p] = dataDict
+                basePowers[p]["data"][m][index:index + len(smData)] = smData[m]
+
+            # load meter data
+            for meter in meters:
+                meter_phase = deviceMapping[meter]["phase"]
+                if meter_phase not in phase:
+                    continue
+                mData = getMeterPower(meter, samplingrate, startTs=r["startTs"], stopTs=r["stopTs"])["data"]
+
+                # Subtract it from each phase
+                for m in powers:
+                    basePowers[p]["data"][m][index:index + len(mData)] -= mData[m]
+            index += len(smData)
 
     # Prevent that base power can be negative
-    for m in powers: 
+    for m in powers:
         indices = np.where(basePowers[p]["data"][m] < 0)
         basePowers[p]["data"][m][indices] = 0
+
     # Calculate base power
     for p in phase:
         data = np.recarray((newSize,), dtype=dt).view(np.recarray)
@@ -695,11 +714,11 @@ def getBasePower(samplingrate: int, startTs: Optional[float]=None, stopTs: Optio
             hist, bin_edges = np.histogram(basePowers[p]["data"][m])
             # Sort histogram based on bins with most entries
             idx = list(reversed(np.argsort(hist)))[:2]
-            # Mean of 2 bins with most entries in historgram
-            mean = np.sum([bin_edges[i]*hist[i] for i in idx])/np.sum([hist[i] for i in idx])
+            # Mean of 2 bins with most entries in histogram
+            mean = np.sum([bin_edges[i] * hist[i] for i in idx]) / np.sum([hist[i] for i in idx])
             data[m][:] = mean
         basePowers[p]["data"] = data
-    
+
     return [basePowers[p] for p in phase]
 
 
@@ -720,40 +739,55 @@ def getPowerStove(samplingrate: int, startTs: Optional[float]=None, stopTs: Opti
     :rtype: list(dict)
     """
     __checkBase()
-    if startTs is None: startTs = getRecordingRange()[0]
-    if stopTs is None: stopTs = getRecordingRange()[1]
-    if phase is None: phase = [1,2,3]
-    if not isinstance(phase, list): phase = [phase]
+    if startTs is None:
+        startTs = getRecordingRange()[0]
+    if stopTs is None:
+        stopTs = getRecordingRange()[1]
+    if phase is None:
+        phase = [1, 2, 3]
+    if not isinstance(phase, list):
+        phase = [phase]
     # Init return dict
     data = {}
-    for p in phase: data[p] = {"phase":p,"samplingrate":samplingrate,"title":"stove","name":"stove l" + str(p),"data":None}
-    # Get smartmeter
+    for p in phase:
+        data[p] = {"phase": p, "samplingrate": samplingrate, "title": "stove", "name": "stove l" + str(p), "data": None}
+
+    # Get smartmeter name
     smartmeterName = getSmartMeter()
+
     # Calculate base power consumption
     base = getBasePower(samplingrate, startTs=startTs, stopTs=stopTs, phase=phase)
+
     # Get total power consumption
-    smartmeterData = getMeterPower(smartmeterName, samplingrate, startTs=startTs, stopTs=stopTs)
+    smartmeterData = {}
+    for p in phase:
+        smartmeterData[p] = getMeterPower(smartmeterName, samplingrate, startTs=startTs, stopTs=stopTs, phase=p)
+
     # Get individual meter data
     deviceMapping = getDeviceMapping()
-    # All power meter within that phase
+
+    # Load power for all meters within that phase
     powerMeters = [m for m in getMeterList() if deviceMapping[m]["phase"] in phase]
-    # load their power
     allMeterPower = [getMeterPower(name, samplingrate, startTs=startTs, stopTs=stopTs) for name in powerMeters]
+
     for meter in allMeterPower:
         meterName = meter["title"]
         p = deviceMapping[meterName]["phase"]
-        if data[p]["data"] is None: 
+        if data[p]["data"] is None:
             data[p]["data"] = meter["data"]
             data[p]["measures"] = meter["measures"]
             data[p]["timestamp"] = meter["timestamp"]
-        else: 
-            for m in data[p]["measures"]: data[p]["data"][m] += meter["data"][m]
+        else:
+            for m in data[p]["measures"]:
+                data[p]["data"][m] += meter["data"][m]
 
-    # Lights are neglected, as oven consumes way more power
+    # Lights are neglected, as stove consumes way more power
     for p in data:
         b = next(b for b in base if b["phase"] == p)
-        for m in data[p]["measures"]: data[p]["data"][m] = smartmeterData["data"][m + "_l" + str(p)] - data[p]["data"][m] - b["data"][m]
-        for m in data[p]["measures"]: data[p]["data"][m][data[p]["data"]["s"] < 800] = 0
+        for m in data[p]["measures"]:
+            data[p]["data"][m] = smartmeterData[p]["data"][m] - data[p]["data"][m] - b["data"][m]
+            data[p]["data"][m][data[p]["data"]["s"] < 800] = 0
+
         # peaks, props = find_peaks(data[p]["data"]["s"], threshold=800, width=1)
         # Filter peaks which are smaller than 2s as this cannot be the stove
         peaks, props = find_peaks(data[p]["data"]["s"], threshold=800, width=(1, int(1.0*samplingrate)))
@@ -761,13 +795,16 @@ def getPowerStove(samplingrate: int, startTs: Optional[float]=None, stopTs: Opti
         for m in data[p]["measures"]:
             # Force them to be zero
             data[p]["data"][m][peaks] = 0
+
         # median filter data
-        N = max(1,int(5.0*samplingrate))
-        if (N % 2) == 0: N+=1 # filter has to be odd
-        if N > 1: 
+        N = max(1, int(5.0 * samplingrate))
+        if (N % 2) == 0:
+            N += 1  # filter has to be odd
+        if N > 1:
             for m in data[p]["measures"]:
                 # Force them to be zero
                 data[p]["data"][m] = medfilt(data[p]["data"][m], N)
+
     return [data[p] for p in data]
 
 
@@ -779,15 +816,15 @@ def getReconstructibleDevices() -> dict:
 def delDownloads():
     """Delete the files loaded via rsync."""
     global _loadedFiles
-    for f in _loadedFiles: 
+    for f in _loadedFiles:
         try: subprocess.check_output(["rm", f])
-        # Errors like not exist 
+        # Errors like not exist
         except subprocess.CalledProcessError: pass
     _loadedFiles = []
 
 def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Optional[float]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None) -> dict:
     """
-    Return data of given meter in a as chunks of given size. 
+    Return data of given meter in a as chunks of given size.
 
     :param meter: Name of meter; must be in getMeterList().
     :type  meter: str
@@ -850,7 +887,7 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
             chunk = np.recarray((chunkSize,), dtype=data["data"].dtype).view(np.recarray)
             eof = data["timestamp"] + data["duration"]
             fileI = int((timestamp - data["timestamp"])*data["samplingrate"])
-            if VERBOSE: 
+            if VERBOSE:
                 print(time_format_ymdhms(data["timestamp"]) + "->" + time_format_ymdhms(eof))
 
         while fileI < len(data["data"]):
@@ -888,16 +925,16 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
                 timestamp += chunkSize/data["samplingrate"]
                 chunkI = 0
             if finish: return
-        
+
         missingSamples = int((stopTs - eof)*data["samplingrate"])
 
         if VERBOSE:
             print("Missing:{}".format(missingSamples))
             print("Samples Send: {}/{}".format(sendSamples, samplesToSend))
-        # We reached end of file 
+        # We reached end of file
         # Load next and check distance
         fileIndex += 1
-        if fileIndex < len(files): 
+        if fileIndex < len(files):
             dur = stopTs-eof
             # Strange things if we use exact dur, so use an extra second, it is cut later
             # NOTE: Maybe we are missing samples sometimes due to milliseconds resolution of pyav?
@@ -916,7 +953,7 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
                 samples = min(missingSamples, (chunkSize - chunkI))
                 # Fill with zeros
                 for m in chunk.dtype.names: chunk[m][chunkI:chunkI+samples] = 0
-                chunkI += samples 
+                chunkI += samples
                 missingSamples -= samples
                 # Total chunk is written
                 if chunkI >= chunkSize:
@@ -946,7 +983,7 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
 
 def getMeterVI(meter: str, samplingrate: Optional[float]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None) -> dict:
     """
-    Return vi of given meter. 
+    Return vi of given meter.
 
     :param meter: Name of meter; must be in getMeterList().
     :type  meter: str
@@ -966,7 +1003,7 @@ def getMeterVI(meter: str, samplingrate: Optional[float]=None, startTs: Optional
     # Use generator object
     data = [c for c in getMeterChunk(meter, (stopTs - startTs), data="VI", startTs=startTs, stopTs=stopTs, samplingrate=samplingrate)]
     # On flip, flip all measurements
-    if _getFlip(meter): 
+    if _getFlip(meter):
         for i in range(len(data)):
             for m in data[i]["measures"]: data[i]["data"][m] *= -1
     if len(data) > 0: return data[0]
@@ -975,7 +1012,7 @@ def getMeterVI(meter: str, samplingrate: Optional[float]=None, startTs: Optional
 
 def getMeterFiles(meter: str, samplingrate: float, data: Optional[str]="PQ", startTs: Optional[float]=None, stopTs: Optional[float]=None) -> list:
     """
-    Return files required for given meter and timestamp. 
+    Return files required for given meter and timestamp.
 
     Will use rsync if active to get missing files from remote location.
     Files are downloaded into the corresponding BASE_FOLDER.
@@ -1008,7 +1045,7 @@ def getMeterFiles(meter: str, samplingrate: float, data: Optional[str]="PQ", sta
         # NOTE: This will not work for files other than full 10 min files
         while ts < stopTs:
             f = os.path.join(directory, meter + "_" + datetime.fromtimestamp(ts).strftime(STORE_TIME_FORMAT) + ".mkv")
-            files.append(f) 
+            files.append(f)
             # get next full 10 minutes
             ts = int((int(ts)+10*60)/(10*60))*10*60
     else:
@@ -1017,7 +1054,7 @@ def getMeterFiles(meter: str, samplingrate: float, data: Optional[str]="PQ", sta
         # Special case of data until midnight (next day wont be loaded)
         if stopDate == stopDate.replace(hour=0, minute=0, second=0, microsecond=0): stopDate = stopDate - timedelta(days=1)
         else: stopDate = stopDate.replace(hour=0, minute=0, second=0, microsecond=0)
-        
+
         dates = [startDate]
         while startDate < stopDate:
             startDate += timedelta(days=1)
@@ -1027,18 +1064,18 @@ def getMeterFiles(meter: str, samplingrate: float, data: Optional[str]="PQ", sta
         if VERBOSE: print(file)
         if not os.path.exists(file) and not RSYNC_ALLOWED: sys.exit("\033[91mFile {} does not exist\033[0m".format(file))
         if not os.path.exists(file) and RSYNC_ALLOWED:
-            if VERBOSE: 
+            if VERBOSE:
                 print("File: {} does not exist, using rsync to download".format(file))
             dest = os.path.dirname(file)
             os.makedirs(dest, exist_ok=True)
             rsyncSubPath = file.split(FIRED_BASE_FOLDER)[-1].replace(os.path.sep, "/")
             cmd = "rsync --password-file={} {}{} {}".format(getRSYNCPwdFile(), RSYNC_ADDR, rsyncSubPath, dest)
             if VERBOSE: print(cmd)
-            OUT = subprocess.PIPE 
+            OUT = subprocess.PIPE
             process = subprocess.Popen(cmd, stdout=OUT, stderr=OUT, shell=True)
             process.wait()
             # In case of failure, notify
-            if not os.path.exists(file): 
+            if not os.path.exists(file):
                 print("error retreiving file:\n{}".format(OUT))
             if os.path.exists(file): _loadedFiles.append(file)
     return files
@@ -1046,7 +1083,7 @@ def getMeterFiles(meter: str, samplingrate: float, data: Optional[str]="PQ", sta
 
 def getMeterFiles2(meter: str, samplingrate: float, data: Optional[str]="PQ", startTs: Optional[float]=None, stopTs: Optional[float]=None) -> list:
     """
-    Return files required for given meter and timestamp. 
+    Return files required for given meter and timestamp.
 
     :param meter: Name of meter; must be in getMeterList().
     :type  meter: str
@@ -1088,9 +1125,11 @@ def getMeterFiles2(meter: str, samplingrate: float, data: Optional[str]="PQ", st
         files.append(os.path.join(directory, file))
     return files
 
-def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float]=None, stopTs: Optional[float]=None) -> dict:
+
+def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float] = None, stopTs: Optional[float] = None,
+                  phase: Optional[float] = None) -> dict:
     """
-    Return power of given meter. 
+    Return power of given meter.
 
     :param meter: Name of meter; must be in getMeterList().
     :type  meter: str
@@ -1100,24 +1139,34 @@ def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float]=None
     :type  startTs: float or None
     :param stopTs: Time range stop
     :type  stopTs: float or None
+    :param phase: phase number
+    :type phase: int or None
 
     :return: power data
     :rtype: dict
     """
     __checkBase()
-    
-    if startTs is None: startTs = getRecordingRange()[0]
-    if stopTs is None: stopTs = getRecordingRange()[1]
+    if startTs is None:
+        startTs = getRecordingRange()[0]
+    if stopTs is None:
+        stopTs = getRecordingRange()[1]
     files = getMeterFiles(meter, samplingrate, startTs=startTs, stopTs=stopTs)
-    if VERBOSE: print("{}: Loading MKV...".format(meter), end="", flush=True)
-    data = [loadAudio(file)[0] for file in files]
-    if VERBOSE: print("Done")
-    if len(data) < 1: return None
+    if VERBOSE:
+        print("{}: Loading MKV...".format(meter), end="", flush=True)
+    idx = 0
+    if phase is not None:
+        idx = phase - 1
+    data = [loadAudio(file)[idx] for file in files]
+    if VERBOSE:
+        print("Done")
+    if len(data) < 1:
+        return None
     dataNice = data[0]
     # Concat data of several files
     if len(data) > 1:
         for d in data[1:]:
             dataNice["data"] = np.concatenate((dataNice["data"], d["data"]))
+
     data = dataNice
 
     # Using summary file
@@ -1129,31 +1178,41 @@ def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float]=None
     # try: data = next(d for d in dataList if d["title"] == meter)
     # except StopIteration: return None
 
-    fromSample = int((startTs - data["timestamp"])*data["samplingrate"])
-    toSample = int((stopTs - data["timestamp"])*data["samplingrate"])
+    fromSample = int((startTs - data["timestamp"]) * data["samplingrate"])
+    toSample = int((stopTs - data["timestamp"]) * data["samplingrate"])
 
     data["data"] = data["data"][fromSample:toSample]
     data["timestamp"] = startTs
-    if VERBOSE: 
+
+    if VERBOSE:
         print("{}->{}: len({})".format(time_format_ymdhms(startTs), time_format_ymdhms(stopTs), len(data["data"])))
+
     if samplingrate != 1 and samplingrate != 50:
-        if VERBOSE: print("resampling")
+        if VERBOSE:
+            print("resampling")
         data["data"] = resampleRecord(data["data"], data["samplingrate"], samplingrate)
         data["samplingrate"] = samplingrate
-    goalSamples = int(data["samplingrate"]*(stopTs - startTs))
+
+    goalSamples = int(data["samplingrate"] * (stopTs - startTs))
+
     if abs(goalSamples - len(data["data"])) > data["samplingrate"]:
-        print("\033[91mError loading data for {}. Requested samples: {}, actual samples: {}\033[0m".format(meter, goalSamples, len(data["data"])))
+        print(f"\033[91mError loading data for {meter}. Requested samples: {goalSamples}, "
+              f"actual samples: {len(data['data'])}\033[0m")
+
     if goalSamples > len(data["data"]):
-        new = np.recarray((goalSamples-len(data["data"]),), dtype=data["data"].dtype).view(np.recarray)
-        if abs(goalSamples - len(data["data"])) > data["samplingrate"]: new[:] = 0
-        else: new[:] = data["data"][-1]
+        new = np.recarray((goalSamples - len(data["data"]),), dtype=data["data"].dtype).view(np.recarray)
+        if abs(goalSamples - len(data["data"])) > data["samplingrate"]:
+            new[:] = 0
+        else:
+            new[:] = data["data"][-1]
         data["data"] = np.concatenate((data["data"], new))
     elif goalSamples < len(data["data"]):
         data["data"] = data["data"][:goalSamples]
+
     deviceMapping = getDeviceMapping()
     data["phase"] = deviceMapping[meter]["phase"]
     data["samples"] = len(data["data"])
-    data["duration"] = data["samples"]/data["samplingrate"]
+    data["duration"] = data["samples"] / data["samplingrate"]
 
     # prevent memory leak by copying over and delete larger one
     new = np.recarray((data["samples"],), dtype=data["data"].dtype).view(np.recarray)
@@ -1165,7 +1224,7 @@ def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float]=None
 
 def getPower(appliance: str, samplingrate: int, startTs: Optional[float]=None, stopTs: Optional[float]=None) -> Union[list, dict]:
     """
-    Return power of given appliance. 
+    Return power of given appliance.
 
     :param appliance: Name of appliance; must be in getApplianceList().
     :type  appliance: str
@@ -1185,13 +1244,13 @@ def getPower(appliance: str, samplingrate: int, startTs: Optional[float]=None, s
 
     # See if data is in one of the meters
     deviceMapping = getDeviceMapping()
-    try: 
+    try:
         meter = next(dev for dev in deviceMapping if appliance in deviceMapping[dev]["appliances"])
         data = getMeterPower(meter, samplingrate, startTs=startTs, stopTs=stopTs)
         data["name"] = appliance
         return data
     except StopIteration:pass
-    
+
     # See if data is in the changing device meter
     changingDeviceInfo = [cdI for cdI in getChangingDeviceInfo() if cdI["startTs"] < stopTs and cdI["stopTs"] > startTs and cdI["name"].lower() == appliance]
     if len(changingDeviceInfo) > 0:
@@ -1207,7 +1266,7 @@ def getPower(appliance: str, samplingrate: int, startTs: Optional[float]=None, s
         data["data"] = cleaned
         data["name"] = appliance
         return data
-    
+
     # See if in lights
     lights = [l["name"] for l in loadAnnotations(LIGHT_ANNOTATION, loadData=False)]
     if appliance in lights:
@@ -1224,7 +1283,7 @@ def getPower(appliance: str, samplingrate: int, startTs: Optional[float]=None, s
 
 def getPowerForAppliances(samplingrate: int, startTs: Optional[float]=None, stopTs: Optional[float]=None, appliances: Union[None,str,List[str]]=None) -> List[dict]:
     """
-    Return power of all appliance or appliances in list. 
+    Return power of all appliance or appliances in list.
 
     :param samplingrate: samplingrate of returned power
     :type  samplingrate: int
@@ -1258,7 +1317,7 @@ def getPowerForAppliances(samplingrate: int, startTs: Optional[float]=None, stop
 
 def getPowerForLight(light: str, samplingrate: int, startTs: Optional[float]=None, stopTs: Optional[float]=None) -> dict:
     """
-    Return power for given light. 
+    Return power for given light.
 
     :param light: name of light
     :type  light: str
@@ -1337,7 +1396,7 @@ def getPowerForLight(light: str, samplingrate: int, startTs: Optional[float]=Non
 
 def getPowerForLights(samplingrate: int, startTs: Optional[float]=None, stopTs: Optional[float]=None, lights: Union[None,str,List[str]]=None) -> List[dict]:
     """
-    Return power for all or given lights. 
+    Return power for all or given lights.
 
     :param samplingrate: samplingrate of returned power
     :type  samplingrate: int
@@ -1345,7 +1404,7 @@ def getPowerForLights(samplingrate: int, startTs: Optional[float]=None, stopTs: 
     :type  startTs: float or None
     :param stopTs: Time range stop
     :type  stopTs: float or None
-    :param lights: name of lights 
+    :param lights: name of lights
     :type  lights: None, list(str) or str
 
     :return: list of power dictionaries
@@ -1431,7 +1490,7 @@ def getPowerForLights(samplingrate: int, startTs: Optional[float]=None, stopTs: 
 
 def getTsDurRateMeas(file: str) -> Tuple[float, float, int, List[str]]:
     """
-    Return simple info tuple for mkv file. 
+    Return simple info tuple for mkv file.
     Tuple is:
     - timestamp of first sample in file
     - duration of file in seconds
@@ -1452,7 +1511,7 @@ def getTsDurRateMeas(file: str) -> Tuple[float, float, int, List[str]]:
     else: startTs = filenameToTimestamp(file)
     return (startTs, iinfo["duration"], iinfo["samplingrate"], iinfo["measures"])
 
- 
+
 
 def streamsForTitle(streams, titles:Union[str, List[str]]):
     """Return only streams that match the given title"""
@@ -1582,11 +1641,8 @@ def chunkLoads(fileList: List[str], timeslice:float, start: Optional[float]=0, s
         j += 1 # next file
 
 
-
-
-
-def chunkLoad(filepath: str, timeslice:float, start: Optional[float]=0, stop: Optional[float]=-1, 
-              streamsToLoad: Optional[List[int]]=None, titles: Optional[List[str]]=None) -> List[dict]:
+def chunkLoad(filepath: str, timeslice: float, start: Optional[float] = 0, stop: Optional[float] = -1,
+              streamsToLoad: Optional[List[int]] = None, titles: Optional[List[str]] = None) -> List[dict]:
     r"""
     Load a single file in chunks to keep memory usage small.
 
@@ -1644,15 +1700,15 @@ def chunkLoad(filepath: str, timeslice:float, start: Optional[float]=0, stop: Op
     if len(streams) == 0: return []
     # Copy over stream infos into datalist
     dataDict = {i["streamIndex"]:i for i in info(filepath)["streams"] if i["streamIndex"] in [s.index for s in streams]}
-    
+
     # Prepare chunk size dict
-    for i in dataDict.keys(): 
+    for i in dataDict.keys():
         chunkSizes[i] = int(dataDict[i]["samplingrate"]*timeslice)
         # Audio data will be stored here
         dataOnly[i] = np.empty((chunkSizes[i],len(dataDict[i]["measures"])), dtype=np.float32)
         loadedFrames[i] = []
         dataLen[i] = 0
-    
+
     chunks = 0
     # Copy over timestamps so the timestamp of each chunk can be calculated
     timestamps = {i:dataDict[i]["timestamp"] for i in dataDict}
@@ -1667,7 +1723,7 @@ def chunkLoad(filepath: str, timeslice:float, start: Optional[float]=0, stop: Op
     # De-multiplex the individual packets of the file
     for packet in container.demux(streams):
         i = packet.stream.index
-            
+
         # Inside the packets, decode the frames
         for frame in packet.decode():
             if not inited:
@@ -1687,7 +1743,7 @@ def chunkLoad(filepath: str, timeslice:float, start: Optional[float]=0, stop: Op
                 ndarray = frame.to_ndarray().T[s:e]
                 loadedFrames[i].append(ndarray)
                 dataLen[i] += ndarray.shape[0]
-                
+
         # If the chunks have been loaded for all streams (sometimes chunksize smaller the framesize -> hence while)
         while all([dataLen[index] >= chunkSizes[index] for index in chunkSizes.keys()]):
             dataReturn = []
@@ -1703,7 +1759,7 @@ def chunkLoad(filepath: str, timeslice:float, start: Optional[float]=0, stop: Op
                     currentLen += end
                     loadedFrames[i][0] = loadedFrames[i][0][end:]
                     if loadedFrames[i][0].shape[0] == 0: del loadedFrames[i][0]
-                
+
                 dataReturn[-1]["data"] = np.core.records.fromarrays(dataOnly[i][:currentLen].T, dtype={'names': dataReturn[-1]["measures"], 'formats': ['f4']*len(dataReturn[-1]["measures"])})
                 dataReturn[-1]["samples"] = len(dataReturn[-1]["data"])
                 dataReturn[-1]["duration"] = dataReturn[-1]["samples"]/dataReturn[-1]["samplingrate"]
@@ -1806,8 +1862,8 @@ def loadAudio(filepath: str, streamsToLoad: Optional[List[int]]=None, titles: Op
         dataDict[i]["timestamp"] = dataDict[i]["timestamp"]+start
         dataDict[i]["data"] = np.ones((dataDict[i]["samples"],len(dataDict[i]["measures"])), dtype=np.float32)
         # dataDict[i]["data"] = np.empty((dataDict[i]["samples"],len(dataDict[i]["measures"])), dtype=np.float32)
-        dataDict[i]["storeIndex"] = 0 
-    
+        dataDict[i]["storeIndex"] = 0
+
     start_pts = start*1000.0
     end_pts = start_pts + duration*1000
     inited = False
@@ -1822,11 +1878,11 @@ def loadAudio(filepath: str, streamsToLoad: Optional[List[int]]=None, titles: Op
             # Check seek status
             if not inited:
                 if frame.pts > start_pts: raise AssertionError("Seeked too far, should not happen: {}ms - {}ms".format(frame.pts, start_pts))
-            # Check start 
+            # Check start
             if frame.pts + int(frame.samples/float(frame.sample_rate)*1000) < start_pts: continue
             # Check end
             if duration != -1 and frame.pts > end_pts: break
-        
+
             # If we need to skip data at the beginning, 0 else
             # This is only ms resolution
             # NOTE: Does this cause problems for us?? we need to find out
@@ -1850,10 +1906,10 @@ def loadAudio(filepath: str, streamsToLoad: Optional[List[int]]=None, titles: Op
             dataDict[index]["storeIndex"] += ndarray.shape[0]
             if not inited:
                 inited = True
-   
+
     # Demultiplex the individual packets of the file
     # for i, packet in enumerate(container.demux(streams)):
-        
+
     #     # Inside the packets, decode the frames
     #     for frame in packet.decode(): # codec_ctx.decode(packet):
 
@@ -1879,7 +1935,7 @@ def loadAudio(filepath: str, streamsToLoad: Optional[List[int]]=None, titles: Op
     #         dataDict[index]["storeIndex"] += ndarray.shape[0]
     # Make recarray from data
     for i in dataDict.keys():
-        if "storeIndex" in dataDict[i]: del dataDict[i]["storeIndex"] 
+        if "storeIndex" in dataDict[i]: del dataDict[i]["storeIndex"]
         dataDict[i]["data"] = np.core.records.fromarrays(dataDict[i]["data"].transpose(), dtype={'names': dataDict[i]["measures"], 'formats': ['f4']*len(dataDict[i]["measures"])})
     # RETURN it as a list
     return [dataDict[i] for i in dataDict.keys()]
@@ -1955,7 +2011,7 @@ def info(path: str, format: Optional[str]=None, option: list=[]) -> dict:
         streamInfo["measures"] = channelTags
         info["streams"].append(streamInfo)
     # Duration of container is longest duration of all streams
-    
+
     info["duration"] = max([info["streams"][i]["duration"] for i in range(len(container.streams))])
     return info
 
