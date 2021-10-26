@@ -1,7 +1,6 @@
 pytz
 pandas
 numpy
-Cython
 scipy
 typing
 av
