@@ -702,10 +702,10 @@ def getBasePower(samplingrate: int, startTs: Optional[float] = None, stopTs: Opt
                     basePowers[p]["data"][m][index:index + len(mData)] -= mData[m]
             index += len(smData)
 
-    # Prevent that base power can be negative
-    for m in powers:
-        indices = np.where(basePowers[p]["data"][m] < 0)
-        basePowers[p]["data"][m][indices] = 0
+        # Prevent that base power can be negative
+        for m in powers:
+            indices = np.where(basePowers[p]["data"][m] < 0)
+            basePowers[p]["data"][m][indices] = 0
 
     # Calculate base power
     for p in phase:
@@ -787,7 +787,8 @@ def getPowerStove(samplingrate: int, startTs: Optional[float]=None, stopTs: Opti
         for m in data[p]["measures"]:
             data[p]["data"][m] = smartmeterData[p]["data"][m] - data[p]["data"][m] - b["data"][m]
             data[p]["data"][m][data[p]["data"]["s"] < 800] = 0
-
+            data[p]["data"][m][data[p]["data"]["p"] < 800] = 0
+        pass
         # peaks, props = find_peaks(data[p]["data"]["s"], threshold=800, width=1)
         # Filter peaks which are smaller than 2s as this cannot be the stove
         peaks, props = find_peaks(data[p]["data"]["s"], threshold=800, width=(1, int(1.0*samplingrate)))
