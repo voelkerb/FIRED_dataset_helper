@@ -1023,7 +1023,7 @@ def getMeterVI(meter: str, samplingrate: Optional[float]=None, startTs: Optional
                 for m in data[i]["measures"]: data[i]["data"][m] *= -1
         allData.append(data[0])
 
-    if smartmeterMergePhases:
+    if meter == getSmartMeter() && smartmeterMergePhases:
         allData = [mergeSmartmeterChannels(allData)]
 
     if len(allData) == 1: return allData[0]
@@ -1245,7 +1245,7 @@ def getMeterPower(meter: str, samplingrate: float, startTs: Optional[float] = No
         del data["data"]
         data["data"] = new
         returnData.append(data)
-    if smartmeterMergePhases:
+    if meter == getSmartMeter() && smartmeterMergePhases:
         returnData = [mergeSmartmeterChannels(returnData)]
         
     if len(returnData) == 1: return returnData[0]
