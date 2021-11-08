@@ -693,7 +693,7 @@ def getBasePower(samplingrate: int, startTs: Optional[float] = None, stopTs: Opt
             # load meter data
             for meter in meters:
                 meter_phase = deviceMapping[meter]["phase"]
-                if meter_phase not in phase:
+                if meter_phase not in p:
                     continue
                 mData = getMeterPower(meter, samplingrate, startTs=r["startTs"], stopTs=r["stopTs"])["data"]
 
