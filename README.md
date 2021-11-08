@@ -126,27 +126,63 @@ pip install -r requirements.txt
 ## How to Use
 
 The helper module makes using the dataset a breeze.
+
+Setting up the helper: 
 ```python
 import helper as hp
 
 # Set FIRED base Folder (location where you downloaded the dataset)
 hp.FIRED_BASE_FOLDER = "~/FIRED"
-
-# load 1Hz power data of the television for complete recording range
-television = hp.getPower("television", 1)
-
-# load 2h of 50Hz power data of powermeter09 (Fridge) of day 2020.08.03
-startTs, stopTs = hp.getRecordingRange("2020.08.03 17:25:00", "2020.08.03 19:25:00")
-fridge = hp.getMeterPower("powermeter09", 50, startTs=startTs, stopTs=stopTs)
 ```
 
-Loading high frequency data is now also possible without downloaded in advance:
+Load data of a particular appliance:
 ```python
-# Data is now loaded on the fly over rsync
-hp.RSYNC_ALLOWED = True
-# load two seconds of high freq data powermeter09 (Fridge)
-startTs, stopTs = hp.getRecordingRange("2020.08.03 17:34:02", "2020.08.03 17:34:04")
-fridge = hp.getMeterVI("powermeter09", startTs=startTs, stopTs=stopTs)
+# load 1Hz power data of the television for complete recording range
+television = hp.getPower("television", 1)
+```
+```bash
+Out[1]: 
+{'samplingrate': 1,
+ 'samples': 8726400,
+ 'duration': 8726400.0,
+ ...
+ 'title': 'powermeter23',
+ 'timestamp': 1592085600.0,
+ 'measures': ['p', 'q', 's'],
+ 'phase': 3,
+ 'data': rec.array([(142.97263  , 51.67106 , 152.02325 ),
+            (  0.       ,  0.      ,   0.      ),
+            (  0.       ,  0.      ,   0.      ), ...,
+            (  0.8029512, 10.034512,  10.066586),
+            (  0.511058 ,  9.985003,   9.998074),
+            (  0.5797112,  9.834283,   9.851355)],
+           dtype=[('p', '<f4'), ('q', '<f4'), ('s', '<f4')]),
+ 'name': 'television'}
+```
+
+Load data of a particular meter over particular time of interest:
+```python
+# load 2h of 50Hz power data of powermeter09 (Fridge) of day 2020.08.03
+startTs, stopTs = hp.getRecordingRange("2020.08.03 17:25:00", "2020.08.03 19:25:00")
+fridge = hp.getMeterPower("powermeter09", 50, startTs=startTs, stopTs=stopTs)
+```
+```bash
+Out[2]: 
+{'samplingrate': 50,
+ 'samples': 360000,
+ 'duration': 7200.0,
+ ...
+ 'title': 'powermeter09',
+ 'timestamp': 1596468300.0,
+ 'measures': ['p', 'q', 's'],
+ 'phase': 3,
+ 'data': rec.array([(0.71093047, 0.30342358, 0.7729735 ),
+            (0.65431005, 0.3545675 , 0.7442041 ),
+            (0.683063  , 0.33363467, 0.7601889 ), ...,
+            (0.73287123, 0.35243228, 0.81320894),
+            (0.5769262 , 0.40467358, 0.7047017 ),
+            (0.70400655, 0.42130944, 0.8204431 )],
+           dtype=[('p', '<f4'), ('q', '<f4'), ('s', '<f4')])}
 ```
 
 Plotting the data is straightforward:
@@ -168,4 +204,45 @@ ax.set(xlabel='Time of day', ylabel='Power [W/var]', title='Fridge')
 fig.autofmt_xdate()
 plt.show()
 ```
+![fridgePlot](docu/fridge.png)
 
+Aggregated data from the SmartMeter can be loaded similiarly:
+```python
+smartmeter = hp.getMeterPower(hp.getSmartMeter(), 50, startTs=startTs, stopTs=stopTs)
+```
+```bash
+Out[3]: 
+[{'samplingrate': 50,
+  'samples': 360000,
+  'duration': 7200.0,
+  'title': 'smartmeter001 L1',
+  'timestamp': 1596468300.0,
+  'measures': ['p', 'q', 's'],
+  'phase': 1,
+  'data': ... },
+ {'samplingrate': 50,
+  'samples': 360000,
+  'duration': 7200.0,
+  'title': 'smartmeter001 L2',
+  'timestamp': 1596468300.0,
+  'measures': ['p', 'q', 's'],
+  'phase': 2,
+  'data': ... },
+ {'samplingrate': 50,
+  'samples': 360000,
+  'duration': 7200.0,
+  'title': 'smartmeter001 L3',
+  'timestamp': 1596468300.0,
+  'measures': ['p', 'q', 's'],
+  'phase': 3,
+  'data': ... }]
+```
+
+Loading high frequency voltage and current data is now also possible without the need to download all the files in advance:
+```python
+# Data is now loaded on the fly over rsync
+hp.RSYNC_ALLOWED = True
+# load two seconds of high freq data powermeter09 (Fridge)
+startTs, stopTs = hp.getRecordingRange("2020.08.03 17:34:02", "2020.08.03 17:34:04")
+fridge = hp.getMeterVI("powermeter09", startTs=startTs, stopTs=stopTs)
+```
