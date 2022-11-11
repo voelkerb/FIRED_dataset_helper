@@ -66,6 +66,8 @@ dates = [datetime.fromtimestamp(ts) for ts in timestamps]
 fig, ax = plt.subplots()
 ax.plot(dates, fridge["data"]["i"], label="current")
 # format plot  
-ax.set(xlabel='Time of day', ylabel='Current [mA]', title='Fridge')
+ax.set(xlabel='Time of day', ylabel='Current [mA]')
+ax.set(title='Fridge')
 plt.setp(ax.get_xticklabels(), ha="center", rotation=35)
 plt.show()
+# %%
