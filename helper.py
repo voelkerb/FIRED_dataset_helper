@@ -2015,7 +2015,10 @@ def info(path: str, format: Optional[str]=None, option: list=[]) -> dict:
     info = {}
     # This extracts container info
     info["format"] = container.format
-    info["duration"] = float(container.duration) / av.time_base
+    if container.duration is not None:
+        info["duration"] = float(container.duration) / av.time_base
+    else:
+        info["duration"] = -1
     info["metadata"] = container.metadata
     info["#streams"] = len(container.streams)
     info["streams"] = []
