@@ -110,6 +110,13 @@ The DAQ was comprised of a custom-built smart meter (see [SmartMeter](https://gi
 | 1        | Access Point \#3       | Apple     | Airport Express A1392          | 2\.2     | 26          |
 | 1        | Recording PC           | Intel     | NUC8v5PNK                      | 60       | 27          |
 
+## The thing with the fridge...
+
+* The installed fridge started to malfunction on June 17th and finally broke down on June 18th.
+* A temporary replacement fridge (Bomann KB 340.1) was installed on June 21st.
+* The broken fridge was still in its warranty period and a replacement unit (same model) was eventually installed on July 19th. 
+The good thing: Name another electricity dataset out there in which a fridge broke down. You want to test your *predictive maintenance* algorithm?
+
 ## Known Issues
 
 Smartmeter Data (current L3) is corrupt every now and then after 08/30/2020 14:00
