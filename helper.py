@@ -1772,7 +1772,7 @@ def chunkLoad(filepath: str, timeslice: float, start: Optional[float] = 0, stop:
     # we can seek directly to the point of interest if we only have one stream
     if start != 0 and len(streams) == 1:
         # NOTE: Sometimes it seeks too far (maybe ), so make a safe margin
-        container.seek(start_pts, whence='time', any_frame=False, stream=streams[0])
+        container.seek(start_pts, any_frame=False, stream=streams[0])
 
     inited = False
     # De-multiplex the individual packets of the file
@@ -1927,7 +1927,7 @@ def loadAudio(filepath: str, streamsToLoad: Optional[List[int]]=None, titles: Op
         index = stream.index
         if VERBOSE: print(stream)
         container = av.open(filepath)
-        container.seek(math.floor(start_pts), whence='time', any_frame=False, stream=stream)
+        container.seek(math.floor(start_pts), any_frame=False, stream=stream)
         initCheck = False
         for frame in container.decode(streams=stream.index):
             # Check seek status
@@ -2099,7 +2099,7 @@ def getSamples(path:str, format:Union[None,str]=None, option:list=[]) -> int:
         except av.AVError:
             return 0
         # Seek to the last frame in the container
-        container.seek(sys.maxsize, whence='time', any_frame=False, stream=stream)
+        container.seek(sys.maxsize, any_frame=False, stream=stream)
         for frame in container.decode(streams=stream.index):
             samples[i] = int(frame.pts / 1000.0*frame.rate + frame.samples)
     return samples
