@@ -125,7 +125,7 @@ def loadCSV(filepath: str, delimiter: str=DELIMITER) -> List[dict]:
     """
     def dateparse(timestamp:float):
         return datetime.fromtimestamp(float(timestamp))
-    data = pd.read_csv(filepath, delimiter=delimiter, parse_dates=True, date_parser=dateparse).to_dict('r')
+    data = pd.read_csv(filepath, delimiter=delimiter, parse_dates=True, date_parser=dateparse).to_dict('records')
     return data
 
 
