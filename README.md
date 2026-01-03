@@ -36,7 +36,7 @@ rsync -avzh --progress --exclude="highFreq" --exclude="summary/50Hz" rsync://FIR
 
 ## Online Availability
 
-The 50Hz power data is also available within the [Annoticity tool](https://earth.informatik.uni-freiburg.de/annoticity). 
+The 50Hz power data is also available within the [Annoticity tool](https://voelkerb.com:8000). 
 Annoticty allows to visually inspect and label electricity datasets like FIRED.
 You can also use Annoticity to download the 50Hz power file of a particular device in FIRED.
 
