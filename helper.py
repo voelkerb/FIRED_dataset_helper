@@ -8,11 +8,15 @@ register_matplotlib_converters()
 import json
 import numpy as np
 import av
+# PyAV >= 9 renamed AVError
+AVError = getattr(av, "AVError", None) or av.error.FFmpegError
 import math
 import subprocess
+import shutil
+import urllib.request
 from scipy.signal import find_peaks, medfilt
 
-from typing import Union, List, Tuple, Optional
+from typing import Union, List, Tuple, Optional, Iterator
 
 # Basic folder, need to be set from the class using it
 FIRED_BASE_FOLDER = None
@@ -49,10 +53,10 @@ CHANGING_DEVICE_INFO_FILENAME = "changingDevice.csv"
 DEVICE_MAPPING_FILENAME = "deviceMapping.json"
 DEVICE_INFO_FILENAME = "deviceInfo.json"
 LIGHTS_POWER_INFO_FILENAME = "lightsPower.json"
-RSYNC_PWD_FILE = "rsync_pass.txt"
-
-RSYNC_ALLOWED = True
-RSYNC_ADDR = "rsync://FIRED@clu.informatik.uni-freiburg.de/FIRED/"
+DOWNLOAD_ALLOWED = True
+DOWNLOAD_URL = "https://ira.informatik.uni-freiburg.de/~voelkerb/FIRED/"
+DOWNLOAD_USER = "FIRED"
+DOWNLOAD_PWD = "nobodyGetsFIRED"
 VERBOSE = False
 
 # What is seen as actual NIGHT hour 
@@ -64,7 +68,9 @@ _loadedFiles = []
 
 def __checkBase():
     """Check if base folder is set"""
+    global FIRED_BASE_FOLDER
     if FIRED_BASE_FOLDER is None: sys.exit("\033[91mNeed to set FIRED basefolder Folder\033[0m")
+    FIRED_BASE_FOLDER = os.path.expanduser(FIRED_BASE_FOLDER)
 
 
 def time_format_ymdhms(dt:Union[datetime, float]) -> str:
@@ -151,10 +157,10 @@ def writeCSV(filepath: str, dataList: list, keys: List[str]=[], delimiter: str=D
     # Data must be a list of dictionaries
     if len(keys) == 0: keys = list(dataList[0].keys())
     try:
-        file = open(filepath, 'w+')
-        file.write(delimiter.join(keys) + "\n")
-        for event in dataList:
-            file.write(delimiter.join([str(event[key]) for key in keys]) + "\n")
+        with open(filepath, 'w+') as file:
+            file.write(delimiter.join(keys) + "\n")
+            for event in dataList:
+                file.write(delimiter.join([str(event[key]) for key in keys]) + "\n")
     except Exception as e:
         print(e)
 
@@ -204,11 +210,10 @@ def getSmartMeter() -> Optional[str]:
     except StopIteration: return None
 
 
-def getMeterList() -> Optional[List[str]]:
-    """Return smartmeter name used in recording."""
+def getMeterList() -> List[str]:
+    """Return names of all submeters (all meters except the smartmeter)."""
     mapping = getDeviceMapping()
-    try: return [key for key in mapping if mapping[key]["phase"] != 0]
-    except StopIteration: return None
+    return [key for key in mapping if mapping[key]["phase"] != 0]
 
 
 def getChangingMeter() -> Optional[str]:
@@ -216,11 +221,6 @@ def getChangingMeter() -> Optional[str]:
     mapping = getDeviceMapping()
     try: return next(key for key in mapping if CHANGING_DEVICE in mapping[key]["appliances"])
     except StopIteration: return None
-
-def getRSYNCPwdFile() -> str:
-    __checkBase()
-    return os.path.join(FIRED_BASE_FOLDER, INFO_FOLDER_NAME, RSYNC_PWD_FILE)
-
 
 def getChangingDevices() -> list:
     """Return all appliances connected to the changing meter."""
@@ -328,13 +328,17 @@ def getRecordingRange(startStr: Optional[str]=None, endStr: Optional[str]=None) 
     :return: start and end timestamp
     :rtype: Tuple(float, float)
     """
-    summaryPath = get50HzSummaryPath()
-    firstFolder = min(os.path.join(summaryPath, p) for p in os.listdir(summaryPath)
-                      if os.path.isdir(os.path.join(summaryPath, p)))
-    allFiles = sorted([os.path.join(firstFolder, p) for p in os.listdir(firstFolder)
-                       if os.path.isfile(os.path.join(firstFolder, p)) and "mkv" in p.split(".")])
-
-    if len(allFiles) < 1: return [None, None]
+    # Prefer 50Hz summary, fall back to 1Hz (partial downloads may leave empty 50Hz folders)
+    allFiles = []
+    for summaryPath in [get50HzSummaryPath(), get1HzSummaryPath()]:
+        if not os.path.isdir(summaryPath): continue
+        for folder in sorted(os.path.join(summaryPath, p) for p in os.listdir(summaryPath)
+                             if os.path.isdir(os.path.join(summaryPath, p))):
+            allFiles = sorted([os.path.join(folder, p) for p in os.listdir(folder)
+                               if os.path.isfile(os.path.join(folder, p)) and "mkv" in p.split(".")])
+            if len(allFiles) > 0: break
+        if len(allFiles) > 0: break
+    if len(allFiles) < 1: return None, None
     start = filenameToTimestamp(allFiles[0])
     durLast = info(allFiles[-1])["streams"][0]["duration"]
     end = filenameToTimestamp(allFiles[-1]) + durLast
@@ -411,7 +415,7 @@ def loadAnnotationFile(filepath: str) -> Optional[dict]:
     return info
 
 
-def loadAnnotations(type: str, loadData: bool=True) -> Optional[list]:
+def loadAnnotations(type: str, loadData: bool=True) -> list:
     """
     Load all annotations of given type.
 
@@ -423,7 +427,7 @@ def loadAnnotations(type: str, loadData: bool=True) -> Optional[list]:
     :return: List of Dictionary with extracted annotation info and data or None
     :rtype: None or list
     """
-    if type not in ANNOTATION_TYPES: return None
+    if type not in ANNOTATION_TYPES: return []
     annotationFolder = os.path.join(FIRED_BASE_FOLDER, ANNOTATION_FOLDER_NAME)
     files = sorted([os.path.join(annotationFolder, o) for o in os.listdir(annotationFolder) if type+"__" in o])
     if loadData: getter = loadAnnotationFile
@@ -614,7 +618,7 @@ def bestBasePowerTimeRange(startTs: float, stopTs: float) -> List[dict]:
         timeranges.append({"startTs":tsStart, "stopTs":tsStop})
         date += timedelta(days=1)
     # if we cannot use stopnight
-    if stopDate.hour < BASE_NIGHT_RANGE[1]: del timeranges[-1]
+    if stopDate.hour < BASE_NIGHT_RANGE[1] and len(timeranges) > 0: del timeranges[-1]
 
     if len(timeranges) == 0:
         # use night before then
@@ -693,7 +697,7 @@ def getBasePower(samplingrate: int, startTs: Optional[float] = None, stopTs: Opt
             # load meter data
             for meter in meters:
                 meter_phase = deviceMapping[meter]["phase"]
-                if meter_phase not in p:
+                if meter_phase != p:
                     continue
                 mData = getMeterPower(meter, samplingrate, startTs=r["startTs"], stopTs=r["stopTs"])["data"]
 
@@ -814,8 +818,26 @@ def getReconstructibleDevices() -> dict:
     rec = {"stove":getPowerStove}
     return rec
 
+def _download(url: str, dest: str) -> bool:
+    """Download url to dest using basic auth. Returns True on success."""
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    tmp = dest + ".part"
+    pwdMgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+    pwdMgr.add_password(None, url, DOWNLOAD_USER, DOWNLOAD_PWD)
+    opener = urllib.request.build_opener(urllib.request.HTTPBasicAuthHandler(pwdMgr))
+    try:
+        with opener.open(url) as resp, open(tmp, "wb") as out:
+            shutil.copyfileobj(resp, out)
+        # Only expose complete files
+        os.replace(tmp, dest)
+        return True
+    except Exception as e:
+        print("error retrieving file {}:\n{}".format(url, e))
+        if os.path.exists(tmp): os.remove(tmp)
+        return False
+
 def delDownloads():
-    """Delete the files loaded via rsync."""
+    """Delete the files loaded via download."""
     global _loadedFiles
     for f in _loadedFiles:
         try: subprocess.check_output(["rm", f])
@@ -823,7 +845,7 @@ def delDownloads():
         except subprocess.CalledProcessError: pass
     _loadedFiles = []
 
-def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Optional[float]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None, channel: Optional[int]=0) -> dict:
+def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Optional[float]=None, startTs: Optional[float]=None, stopTs: Optional[float]=None, channel: Optional[int]=0) -> Iterator[dict]:
     """
     Return data of given meter in a as chunks of given size.
 
@@ -845,7 +867,7 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
     if startTs is None: startTs = getRecordingRange()[0]
     if stopTs is None: stopTs = getRecordingRange()[1]
 
-    # This will download it over rsync if this is required
+    # This will download it over HTTP if this is required
     files = getMeterFiles(meter, samplingrate, data=data, startTs=startTs, stopTs=stopTs)
 
     if VERBOSE: print(files)
@@ -872,7 +894,7 @@ def getMeterChunk(meter: str, timeslice: float, data: str="VI", samplingrate: Op
                 print(fileIndex)
                 print(files[fileIndex])
                 print(info(files[fileIndex]))
-                return None
+                return
             start = timestamp-inf["timestamp"]
             end = inf["timestamp"]+inf["duration"]
             dur = -1
@@ -1035,7 +1057,7 @@ def getMeterFiles(meter: str, samplingrate: float, data: Optional[str]="PQ", sta
     """
     Return files required for given meter and timestamp.
 
-    Will use rsync if active to get missing files from remote location.
+    Will download over HTTP if active to get missing files from remote location.
     Files are downloaded into the corresponding BASE_FOLDER.
     You can delete them (only the ones loaded with this function) using delDownloads().
 
@@ -1083,21 +1105,12 @@ def getMeterFiles(meter: str, samplingrate: float, data: Optional[str]="PQ", sta
         files = [os.path.join(directory, meter + "_" + date.strftime(STORE_TIME_FORMAT) + ".mkv") for date in dates]
     for file in files:
         if VERBOSE: print(file)
-        if not os.path.exists(file) and not RSYNC_ALLOWED: sys.exit("\033[91mFile {} does not exist\033[0m".format(file))
-        if not os.path.exists(file) and RSYNC_ALLOWED:
+        if not os.path.exists(file) and not DOWNLOAD_ALLOWED: sys.exit("\033[91mFile {} does not exist\033[0m".format(file))
+        if not os.path.exists(file) and DOWNLOAD_ALLOWED:
             if VERBOSE:
-                print("File: {} does not exist, using rsync to download".format(file))
-            dest = os.path.dirname(file)
-            os.makedirs(dest, exist_ok=True)
-            rsyncSubPath = file.split(FIRED_BASE_FOLDER)[-1].replace(os.path.sep, "/")
-            cmd = "rsync --password-file={} {}{} {}".format(getRSYNCPwdFile(), RSYNC_ADDR, rsyncSubPath, dest)
-            if VERBOSE: print(cmd)
-            OUT = subprocess.PIPE
-            process = subprocess.Popen(cmd, stdout=OUT, stderr=OUT, shell=True)
-            process.wait()
-            # In case of failure, notify
-            if not os.path.exists(file):
-                print("error retreiving file:\n{}".format(OUT))
+                print("File: {} does not exist, downloading".format(file))
+            subPath = os.path.relpath(file, FIRED_BASE_FOLDER).replace(os.path.sep, "/")
+            _download(DOWNLOAD_URL + subPath, file)
             if os.path.exists(file): _loadedFiles.append(file)
     return files
 
@@ -1125,7 +1138,7 @@ def getMeterFiles2(meter: str, samplingrate: float, data: Optional[str]="PQ", st
 
     # Get correct data path depending on data and sr
     if data =="VI": directory = os.path.join(getHighFreqPath(), meter)
-    if data =="PQ" and samplingrate is not None and samplingrate > 1.0: directory = os.path.join(get50HzSummaryPath(), meter)
+    elif data =="PQ" and samplingrate is not None and samplingrate > 1.0: directory = os.path.join(get50HzSummaryPath(), meter)
     else: directory = os.path.join(get1HzSummaryPath(), meter)
 
     files = []
@@ -1265,7 +1278,6 @@ def mergeSmartmeterChannels(dataList):
     assert len(dataList) == 3, "This is no valid smartmeter data"
     oldMeasures = dataList[0]["data"].dtype.names
     newMeasures = [m + "_l" + str(i) for i in [1,2,3] for m in oldMeasures]
-    print(newMeasures)
     dt = [(m, '<f4') for m in newMeasures]
     newData = np.recarray((len(dataList[0]["data"]),), dtype=dt).view(np.recarray)
     for i in [1,2,3]:
@@ -1361,7 +1373,7 @@ def getPowerForAppliances(samplingrate: int, startTs: Optional[float]=None, stop
     deviceInfo = getDeviceInfo()
     applianceList = sorted(list(set(deviceInfo.keys())))
     # Union
-    applianceList = [ap for ap in applianceList if ap in appliances]
+    if appliances is not None: applianceList = [ap for ap in applianceList if ap in appliances]
     pows = []
     for ap in applianceList:
         power = getPower(ap, samplingrate, startTs=startTs, stopTs=stopTs)
@@ -1445,7 +1457,7 @@ def getPowerForLight(light: str, samplingrate: int, startTs: Optional[float]=Non
     lightData["data"] = total
     lightData["samplingrate"] = samplingrate
     lightData["timestamp"] = startTs
-    lightData["phase"] = deviceInfo[lightData["name"]]
+    lightData["phase"] = deviceInfo[lightData["name"]]["phase"]
     return lightData
 
 
@@ -1488,7 +1500,7 @@ def getPowerForLights(samplingrate: int, startTs: Optional[float]=None, stopTs: 
     duration = stopTs - startTs
     newSize = int(duration*samplingrate)
     # Check if we would generate too much data
-    if newSize > 60*60*24*30*50: input("getPowerForLights: {} bytes? Thats a lot of data! sure? ctr-c to cancel.".format(newSize*3*len(lights)))
+    if newSize > 60*60*24*30*50: input("getPowerForLights: {} bytes? Thats a lot of data! sure? ctr-c to cancel.".format(newSize*3*(len(lights) if lights is not None else len(lightsData))))
     # zeros when lights are off
     # zeros = np.recarray((newSize,), dtype=dt).view(np.recarray)
 
@@ -1583,7 +1595,7 @@ def streamsForTitle(streams, titles:Union[str, List[str]]):
 
 
 def chunkLoads(fileList: List[str], timeslice:float, start: Optional[float]=0, stop: Optional[float]=-1,
-               streamsToLoad: Optional[List[int]]=None, titles: Optional[List[str]]=None) -> List[dict]:
+               streamsToLoad: Optional[List[int]]=None, titles: Optional[List[str]]=None) -> Iterator[List[dict]]:
     r"""
     Load multiple files in chunks to keep memory usage small.
     The purpose is to have a dataset split into multiple files.
@@ -1638,8 +1650,6 @@ def chunkLoads(fileList: List[str], timeslice:float, start: Optional[float]=0, s
     duration = stop-start
     currentDuration = 0
     missingSeconds = 0
-    import time
-    start = time.time()
 
     j = 0
     while not finished:
@@ -1649,9 +1659,9 @@ def chunkLoads(fileList: List[str], timeslice:float, start: Optional[float]=0, s
         inf = info(file)["streams"][0]
         if inf["duration"] < started:
             started -= inf["duration"]
+            j += 1
             continue
         for dataListChunk in chunkLoad(file, timeslice, start=started, stop=stop, streamsToLoad=streamsToLoad, titles=titles):
-            start = time.time()
             # We started from starttime frist, now we have to set
             started = missingSeconds
             # Check if chunk length matches
@@ -1697,7 +1707,7 @@ def chunkLoads(fileList: List[str], timeslice:float, start: Optional[float]=0, s
 
 
 def chunkLoad(filepath: str, timeslice: float, start: Optional[float] = 0, stop: Optional[float] = -1,
-              streamsToLoad: Optional[List[int]] = None, titles: Optional[List[str]] = None) -> List[dict]:
+              streamsToLoad: Optional[List[int]] = None, titles: Optional[List[str]] = None) -> Iterator[List[dict]]:
     r"""
     Load a single file in chunks to keep memory usage small.
 
@@ -1744,7 +1754,7 @@ def chunkLoad(filepath: str, timeslice: float, start: Optional[float] = 0, stop:
     chunkSizes, dataOnly, loadedFrames, dataLen, dataDict = {}, {}, {}, {}, {}
     # Open the container
     try: container = av.open(filepath)
-    except av.AVError: return []
+    except AVError: return []
     # NOTE: As for now, this only works for audio data
     # Get available stream indices from file
     streams = [s for i, s in enumerate(container.streams) if ( (s.type == 'audio') )]
@@ -1810,7 +1820,7 @@ def chunkLoad(filepath: str, timeslice: float, start: Optional[float] = 0, stop:
                 currentLen = 0
                 while currentLen < chunkSizes[i]:
                     end = min(loadedFrames[i][0].shape[0], chunkSizes[i]-currentLen)
-                    dataOnly[i][currentLen:currentLen+end] = loadedFrames[0][i][:end]
+                    dataOnly[i][currentLen:currentLen+end] = loadedFrames[i][0][:end]
                     currentLen += end
                     loadedFrames[i][0] = loadedFrames[i][0][end:]
                     if loadedFrames[i][0].shape[0] == 0: del loadedFrames[i][0]
@@ -1833,7 +1843,7 @@ def chunkLoad(filepath: str, timeslice: float, start: Optional[float] = 0, stop:
             currentLen = 0
             while currentLen < min(chunkSizes[i], dataLen[i]):
                 end = min(loadedFrames[i][0].shape[0], chunkSizes[i]-currentLen)
-                dataOnly[i][currentLen:currentLen+end] = loadedFrames[0][i][:end]
+                dataOnly[i][currentLen:currentLen+end] = loadedFrames[i][0][:end]
                 currentLen += end
                 loadedFrames[i][0] = loadedFrames[i][0][end:]
                 if loadedFrames[i][0].shape[0] == 0: del loadedFrames[i][0]
@@ -1889,7 +1899,7 @@ def loadAudio(filepath: str, streamsToLoad: Optional[List[int]]=None, titles: Op
     """
     # Open the container
     try: container = av.open(filepath)
-    except av.AVError: return []
+    except AVError: return []
     # Get available stream indices from file
     streams = [s for i, s in enumerate(container.streams) if ( (s.type == 'audio') )]
     # Look if it is a stream to be loaded
@@ -2010,7 +2020,7 @@ def info(path: str, format: Optional[str]=None, option: list=[]) -> dict:
     options = dict(x.split('=') for x in option)
     try:
         container = av.open(path, format=format, options=options)
-    except av.AVError:
+    except AVError:
         return None
     info = {}
     # This extracts container info
@@ -2074,7 +2084,7 @@ def info(path: str, format: Optional[str]=None, option: list=[]) -> dict:
     return info
 
 
-def getSamples(path:str, format:Union[None,str]=None, option:list=[]) -> int:
+def getSamples(path:str, format:Union[None,str]=None, option:list=[]) -> Optional[List[int]]:
     """
     Return number of samples in audio file.
 
@@ -2088,16 +2098,16 @@ def getSamples(path:str, format:Union[None,str]=None, option:list=[]) -> int:
     options = dict(x.split('=') for x in option)
     try:
         container = av.open(path, format=format, options=options)
-    except av.AVError:
-        return 0
+    except AVError:
+        return None
     # all streams to be extracted
     streams = [s for s in container.streams]
     samples = [0 for _ in range(len(streams))]
     for i, stream in enumerate(streams):
         try:
             container = av.open(path, format=format, options=options)
-        except av.AVError:
-            return 0
+        except AVError:
+            return None
         # Seek to the last frame in the container
         container.seek(sys.maxsize, any_frame=False, stream=stream)
         for frame in container.decode(streams=stream.index):

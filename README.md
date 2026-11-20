@@ -17,22 +17,20 @@ The files contain scripts to generate several statistics and plots from the data
 
 ## Download
 
-Use the ``rsync``command to download the data. The password is: *nobodyGetsFIRED*
+The data is hosted on a webserver and can be fetched with ``wget``. The password is: *nobodyGetsFIRED*
 
-You can download the complete dataset (that's a whoopy 3.2TB) using rsync:
+Typical Smart Meter data, only the 1Hz data (1.7GB):
 ```bash
-rsync -avzh --progress rsync://FIRED@clu.informatik.uni-freiburg.de/FIRED/  <DESTINATION> [--dry-run]
+wget -q --show-progress --user="FIRED" --password="nobodyGetsFIRED" \
+  --reject="robots.txt" -R "index.html*" --cut-dirs=2 -r -np -nH \
+  --exclude-directories="~voelkerb/FIRED/highFreq" \
+  --exclude-directories="~voelkerb/FIRED/summary/50Hz" \
+  https://ira.informatik.uni-freiburg.de/~voelkerb/FIRED/ -P FIRED
 ```
 
-If you are only interested in the summary files (80GB) use:
-```bash
-rsync -avzh --progress --exclude="highFreq" rsync://FIRED@clu.informatik.uni-freiburg.de/FIRED/  <DESTINATION> [--dry-run]
-```
+All summary files (80GB): same command without the ``summary/50Hz`` exclude line.
 
-If you want typical Smart Meter data, you can download only the 1Hz data (1.7GB):
-```bash
-rsync -avzh --progress --exclude="highFreq" --exclude="summary/50Hz" rsync://FIRED@clu.informatik.uni-freiburg.de/FIRED/  <DESTINATION> [--dry-run]
-```
+The complete dataset (that's a whoopy 3.2TB): same command without both ``--exclude-directories`` lines.
 
 ## Online Availability
 
@@ -201,7 +199,7 @@ from datetime import datetime
 # Construct timestamps
 start = fridge["timestamp"]
 end = start+(len(fridge["data"])/fridge["samplingrate"])
-timestamps = np.linspace(start, end, len(fridge["data"])
+timestamps = np.linspace(start, end, len(fridge["data"]))
 dates = [datetime.fromtimestamp(ts) for ts in timestamps]
 # Plot data
 fig, ax = plt.subplots()
@@ -248,8 +246,8 @@ Out[3]:
 
 Loading high frequency voltage and current data is now also possible without the need to download all the files in advance:
 ```python
-# Data is now loaded on the fly over rsync
-hp.RSYNC_ALLOWED = True
+# Data is now loaded on the fly over HTTP
+hp.DOWNLOAD_ALLOWED = True
 # load two seconds of high freq data powermeter09 (Fridge)
 startTs, stopTs = hp.getRecordingRange("2020.08.03 17:34:02", "2020.08.03 17:34:04")
 fridge = hp.getMeterVI("powermeter09", startTs=startTs, stopTs=stopTs)
