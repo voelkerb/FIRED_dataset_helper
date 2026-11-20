@@ -19,7 +19,22 @@ The files contain scripts to generate several statistics and plots from the data
 
 The data is hosted on a webserver and can be fetched with ``wget``. The password is: *nobodyGetsFIRED*
 
-Typical Smart Meter data, only the 1Hz data (1.7GB):
+Download the complete dataset (3.2TB):
+```bash
+wget -q --show-progress --user="FIRED" --password="nobodyGetsFIRED" \
+  --reject="robots.txt" -R "index.html*" --cut-dirs=2 -r -np -nH \
+  https://ira.informatik.uni-freiburg.de/~voelkerb/FIRED/ -P FIRED
+```
+
+Download the summary files, including 50Hz and 1Hz data (80GB):
+```bash
+wget -q --show-progress --user="FIRED" --password="nobodyGetsFIRED" \
+  --reject="robots.txt" -R "index.html*" --cut-dirs=2 -r -np -nH \
+  --exclude-directories="~voelkerb/FIRED/highFreq" \
+  https://ira.informatik.uni-freiburg.de/~voelkerb/FIRED/ -P FIRED
+```
+
+Download only the 1Hz data (1.7GB):
 ```bash
 wget -q --show-progress --user="FIRED" --password="nobodyGetsFIRED" \
   --reject="robots.txt" -R "index.html*" --cut-dirs=2 -r -np -nH \
@@ -27,10 +42,6 @@ wget -q --show-progress --user="FIRED" --password="nobodyGetsFIRED" \
   --exclude-directories="~voelkerb/FIRED/summary/50Hz" \
   https://ira.informatik.uni-freiburg.de/~voelkerb/FIRED/ -P FIRED
 ```
-
-All summary files (80GB): same command without the ``summary/50Hz`` exclude line.
-
-The complete dataset (that's a whoopy 3.2TB): same command without both ``--exclude-directories`` lines.
 
 ## Online Availability
 
